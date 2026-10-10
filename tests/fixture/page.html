@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>API Workbench fixture</title>
+<script src="/fixture.js" defer></script></head>
+<body>
+<main id="host-app">
+<h1>Fixture application</h1>
+<p>Host controls stay on the left; the Workbench panel opens top-right.</p>
+<form id="f">
+<label>Transport <select id="transport"><option>fetch</option><option>xhr</option></select></label>
+<label>responseType <select id="rt"><option value="">(default)</option><option>text</option><option>json</option><option selected>arraybuffer</option><option>blob</option></select></label>
+<label>Method <select id="method"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>HEAD</option></select></label><br>
+<label>URL <input id="url" size="40" value="/api/mock-target?q=1"></label><br>
+<label>Body <input id="body" size="40"></label>
+<button type="submit" id="send">Send</button>
+<button type="button" id="login">Sign in (sets HttpOnly cookie)</button>
+</form>
+<pre id="out" aria-live="polite">No request yet.</pre>
+</main>
+</body></html>

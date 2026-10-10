@@ -1,0 +1,19 @@
+/* R0 panel additions on top of the supplied zinc theme. */
+[hidden]{display:none!important}
+.aw-panel{width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px);box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.aw-scroll{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+.aw-gap0{gap:0}.aw-gap4{gap:4px}.aw-gap12{gap:12px}
+.aw-h,.aw-cap{margin:0}
+.aw-hint{margin:0}
+.aw-fld .aw-lbl{text-align:left}
+.aw-err{font-size:12px;color:#f87171}.aw-err:empty{display:none}
+.aw-wrap{white-space:normal;overflow-wrap:anywhere}
+.aw-act{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto}
+.aw-actrow{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:4px 8px;border:1px solid var(--aw-zinc-800);border-radius:8px;background:var(--aw-zinc-925);color:var(--aw-zinc-50);font:inherit;text-align:left;cursor:pointer}
+.aw-actrow:hover{background:var(--aw-zinc-900)}
+.aw-actrow[aria-expanded="true"]{border-color:var(--aw-zinc-700)}
+.aw-ops{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.aw-ops .aw-row{align-items:flex-start}
+.aw-launcher{flex-direction:row;align-items:center;gap:6px;padding:6px;max-width:calc(100vw - 32px);box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.aw-root button:focus-visible,.aw-root input:focus-visible,.aw-root textarea:focus-visible{outline:2px solid var(--aw-zinc-400);outline-offset:1px}
+.aw-root input[type=checkbox]{accent-color:var(--aw-zinc-50)}
