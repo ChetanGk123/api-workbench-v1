@@ -39,7 +39,9 @@ const forbidden = [
   [/\.innerHTML\s*=|insertAdjacentHTML|document\.write/, 'HTML string injection'],
 ];
 for (const [re, label] of forbidden) if (re.test(min)) failures.push(`forbidden construct: ${label}`);
-const urls = (min.match(/https?:\/\/[^\s"'`)]+/g) ?? []).filter((u) => u !== 'http://www.w3.org/2000/svg');
+// Literal strings only: the SVG namespace and the reference UI's placeholder example. Never fetched.
+const ALLOWED_URL_TEXT = new Set(['http://www.w3.org/2000/svg', 'http://localhost:8080']);
+const urls = (min.match(/https?:\/\/[^\s"'`)]+/g) ?? []).filter((u) => !ALLOWED_URL_TEXT.has(u));
 if (urls.length) failures.push(`unexpected URLs in bundle: ${urls.join(', ')}`);
 
 const source = `${min};void 0`;

@@ -1,12 +1,12 @@
 {
   "version": "2.0.0-r0",
-  "builtAt": "2026-10-10T22:00:17.734Z",
-  "readableBytes": 54758,
-  "minifiedBytes": 38731,
-  "bookmarkChars": 53593,
+  "builtAt": "2026-10-10T22:17:19.680Z",
+  "readableBytes": 83039,
+  "minifiedBytes": 58390,
+  "bookmarkChars": 83212,
   "sha256": {
-    "readable": "9247943128c1df5b799aad7c18b07110de9e03d3fbd9045dfd4dfc1103962699",
-    "minified": "1cda1e640385bd28f6c1c3184ae9bdc68ef843a177d1dcc71a21abead5041f32",
-    "bookmark": "7a8e1f04a150f8c8fc260399eb6c5433aeb81fba1cb93a274744b6a48d9266d2"
+    "readable": "742021d3a9f256da5389751d0cb52d0c836297f379c8cbc5ba7dd007689a3da6",
+    "minified": "237a52dee39b3deb432c1e9f8623b4345dceac89972c1d8e9a65e4b5b1867f88",
+    "bookmark": "b26cc446254db156c1492f99a18748624a2ad7fc442ed30832a6b43fdd32e9ed"
   }
 }

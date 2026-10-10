@@ -93,7 +93,7 @@ export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
     st.rec = rec;
     rec.responseType = this.responseType || 'text';
     if (st.pendingAuthNote) rt.note(rec, 'Authorization removed: destination is a different origin');
-    if (st.plan.transform) rt.op(rec, 'transform', 'skipped', xhrTransformSkip(this.responseType));
+    if (st.plan.transform) rt.op(rec, 'intercept', 'skipped', xhrTransformSkip(this.responseType));
 
     if (st.plan.provider === 'mock') {
       if (this.responseType === 'document') {

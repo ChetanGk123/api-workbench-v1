@@ -1,7 +1,7 @@
 // Shared, pure request planner. No DOM, no globals: adapters pass everything in.
 
 export type Transport = 'fetch' | 'xhr';
-export type Module = 'mock' | 'route' | 'transform';
+export type Module = 'mock' | 'route' | 'intercept';
 export type OpState = 'selected' | 'applied' | 'skipped' | 'superseded' | 'failed';
 
 export interface Op {
@@ -10,22 +10,45 @@ export interface Op {
   reason: string;
 }
 
-export interface MockConfig {
-  active: boolean;
+export const METHODS = ['*', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
+
+interface RuleBase {
+  /** Rule enabled is separate from Module active. */
+  enabled: boolean;
+  label: string;
+  /** '*' or an upper-case method. */
+  method: string;
+  /** Exact pathname on the launch origin. */
+  path: string;
+}
+export interface MockRule extends RuleBase {
   status: number;
   contentType: string;
   body: string;
   delayMs: number;
 }
+export interface RouteRule extends RuleBase {
+  /** Validated origin, e.g. http://127.0.0.1:4311 */
+  destinationOrigin: string;
+  /** '' keeps the original path. */
+  pathRewrite: string;
+}
+export interface InterceptRule extends RuleBase {
+  find: string;
+  replace: string;
+}
+
+export interface ModuleState<R> {
+  active: boolean;
+  /** R0 holds at most one rule per module. */
+  rule: Readonly<R> | null;
+}
 
 export interface Config {
   readonly revision: number;
-  /** Exact pathname matched on the launch origin. */
-  readonly path: string;
-  readonly mock: Readonly<MockConfig>;
-  /** destination is a validated absolute URL, or '' when unset/invalid. */
-  readonly route: Readonly<{ active: boolean; destination: string }>;
-  readonly transform: Readonly<{ active: boolean; find: string; replace: string }>;
+  readonly mock: Readonly<ModuleState<MockRule>>;
+  readonly route: Readonly<ModuleState<RouteRule>>;
+  readonly intercept: Readonly<ModuleState<InterceptRule>>;
 }
 
 export interface Intake {
@@ -39,7 +62,7 @@ export interface Plan {
   readonly revision: number;
   readonly matched: boolean;
   readonly provider: 'network' | 'mock';
-  readonly mock?: Readonly<MockConfig>;
+  readonly mock?: Readonly<MockRule>;
   readonly routeTo?: URL;
   /** True when routing crosses origins; Authorization is then removed. */
   readonly dropAuthorization: boolean;
@@ -60,53 +83,61 @@ export const LIMITS = {
 export function defaultConfig(): Config {
   return {
     revision: 1,
-    path: '/api/mock-target',
-    mock: { active: false, status: 200, contentType: 'application/json', body: '{"mocked":true,"note":"✓ synthetic"}', delayMs: 0 },
-    route: { active: false, destination: '' },
-    transform: { active: false, find: '', replace: '' },
+    mock: { active: false, rule: null },
+    route: { active: false, rule: null },
+    intercept: { active: false, rule: null },
   };
 }
+
+export const newMockRule = (): MockRule => ({ enabled: true, label: '', method: '*', path: '/api/mock-target', status: 200, contentType: 'application/json', body: '{"mocked":true,"note":"✓ synthetic"}', delayMs: 0 });
+export const newRouteRule = (): RouteRule => ({ enabled: true, label: '', method: '*', path: '/api/mock-target', destinationOrigin: '', pathRewrite: '' });
+export const newInterceptRule = (): InterceptRule => ({ enabled: true, label: '', method: '*', path: '/api/mock-target', find: '', replace: '' });
 
 const NO_MATCH = (revision: number): Plan =>
   Object.freeze({ revision, matched: false, provider: 'network', dropAuthorization: false, ops: Object.freeze([]) });
 
+function selects<R extends RuleBase>(m: Readonly<ModuleState<R>>, origin: string, req: Intake): Readonly<R> | null {
+  const r = m.rule;
+  if (!m.active || !r || !r.enabled) return null;
+  if (req.url.origin !== origin || req.url.pathname !== r.path) return null;
+  return r.method === '*' || r.method === req.method ? r : null;
+}
+
 export function planRequest(cfg: Config, launchOrigin: string, req: Intake): Plan {
-  if (req.url.origin !== launchOrigin || req.url.pathname !== cfg.path) return NO_MATCH(cfg.revision);
-  if (!cfg.mock.active && !cfg.route.active && !cfg.transform.active) return NO_MATCH(cfg.revision);
+  const mockRule = selects(cfg.mock, launchOrigin, req);
+  const routeRule = selects(cfg.route, launchOrigin, req);
+  const icRule = selects(cfg.intercept, launchOrigin, req);
+  if (!mockRule && !routeRule && !icRule) return NO_MATCH(cfg.revision);
 
   const ops: Op[] = [];
   const syncReason = 'Synchronous XHR is passed through unchanged';
   let provider: Plan['provider'] = 'network';
-  let mock: MockConfig | undefined;
   let routeTo: URL | undefined;
   let transform: { find: string; replace: string } | undefined;
 
-  if (cfg.mock.active) {
+  if (mockRule) {
     if (req.sync) ops.push({ module: 'mock', state: 'skipped', reason: syncReason });
     else {
       provider = 'mock';
-      mock = { ...cfg.mock };
       ops.push({ module: 'mock', state: 'selected', reason: 'Synthetic reply; no upstream request' });
     }
   }
 
-  if (cfg.route.active) {
+  if (routeRule) {
     if (provider === 'mock') ops.push({ module: 'route', state: 'superseded', reason: 'Mock reply wins; nothing is dispatched' });
     else if (req.sync) ops.push({ module: 'route', state: 'skipped', reason: syncReason });
-    else if (!cfg.route.destination) ops.push({ module: 'route', state: 'skipped', reason: 'Route destination is not a valid URL; original URL sent' });
     else {
-      routeTo = routedUrl(cfg.route.destination, req.url);
+      routeTo = routedUrl(routeRule, req.url);
       ops.push({ module: 'route', state: 'selected', reason: `Route to ${routeTo.origin}${routeTo.pathname}` });
     }
   }
 
-  if (cfg.transform.active) {
-    if (provider === 'mock') ops.push({ module: 'transform', state: 'skipped', reason: 'R0 transforms network responses only' });
-    else if (req.sync) ops.push({ module: 'transform', state: 'skipped', reason: syncReason });
-    else if (!cfg.transform.find) ops.push({ module: 'transform', state: 'skipped', reason: 'Find text is empty' });
+  if (icRule) {
+    if (provider === 'mock') ops.push({ module: 'intercept', state: 'skipped', reason: 'R0 intercepts network responses only' });
+    else if (req.sync) ops.push({ module: 'intercept', state: 'skipped', reason: syncReason });
     else {
-      transform = { find: cfg.transform.find, replace: cfg.transform.replace };
-      ops.push({ module: 'transform', state: 'selected', reason: 'Replace response text' });
+      transform = { find: icRule.find, replace: icRule.replace };
+      ops.push({ module: 'intercept', state: 'selected', reason: 'Replace response text' });
     }
   }
 
@@ -116,32 +147,73 @@ export function planRequest(cfg: Config, launchOrigin: string, req: Intake): Pla
     provider,
     dropAuthorization: !!routeTo && routeTo.origin !== req.url.origin,
     ops: Object.freeze(ops.map((o) => Object.freeze(o))),
-    ...(mock && { mock: Object.freeze(mock) }),
+    ...(provider === 'mock' && mockRule && { mock: mockRule }),
     ...(routeTo && { routeTo }),
     ...(transform && { transform: Object.freeze(transform) }),
   };
   return Object.freeze(plan);
 }
 
-/** Destination path replaces the original path; the original query is preserved. */
-export function routedUrl(destination: string, original: URL): URL {
-  const out = new URL(destination);
+/** Destination origin + (rewrite or original path); the original query is preserved. */
+export function routedUrl(rule: Pick<RouteRule, 'destinationOrigin' | 'pathRewrite'>, original: URL): URL {
+  const out = new URL(rule.pathRewrite || original.pathname, rule.destinationOrigin);
   out.search = original.search;
   return out;
 }
 
-/** Returns a normalized href, or an error message. */
-export function validateDestination(text: string): { ok: true; href: string } | { ok: false; error: string } {
+// ---- Validators: each returns field → message for invalid fields.
+export type Errors = Partial<Record<string, string>>;
+
+function validateBase(r: RuleBase, e: Errors) {
+  if (!METHODS.includes(r.method as (typeof METHODS)[number])) e.method = 'Choose a method';
+  const pathErr = validatePath(r.path);
+  if (pathErr) e.path = pathErr;
+  if (r.label.length > 120) e.label = 'Label is limited to 120 characters';
+}
+
+export function validatePath(p: string): string | null {
+  return p.startsWith('/') && !/[?#\s]/.test(p) ? null : 'Enter a pathname starting with / (no query, fragment or spaces)';
+}
+
+export function validateMockRule(r: MockRule): Errors {
+  const e: Errors = {};
+  validateBase(r, e);
+  if (!Number.isInteger(r.status) || r.status < 200 || r.status > 599) e.status = 'Status must be an integer from 200 to 599';
+  if (!Number.isInteger(r.delayMs) || r.delayMs < 0 || r.delayMs > LIMITS.delayMaxMs) e.delayMs = `Delay must be 0–${LIMITS.delayMaxMs} ms`;
+  if (!r.contentType.trim() || /[\r\n]/.test(r.contentType)) e.contentType = 'Enter a Content-Type';
+  return e;
+}
+
+export function validateRouteRule(r: RouteRule): Errors {
+  const e: Errors = {};
+  validateBase(r, e);
+  const o = validateOrigin(r.destinationOrigin);
+  if (!o.ok) e.destinationOrigin = o.error;
+  if (r.pathRewrite) {
+    const pe = validatePath(r.pathRewrite);
+    if (pe) e.pathRewrite = pe;
+  }
+  return e;
+}
+
+export function validateInterceptRule(r: InterceptRule): Errors {
+  const e: Errors = {};
+  validateBase(r, e);
+  if (!r.find) e.find = 'Enter the literal text to find';
+  return e;
+}
+
+export function validateOrigin(text: string): { ok: true; origin: string } | { ok: false; error: string } {
   let u: URL;
   try {
     u = new URL(text.trim());
   } catch {
-    return { ok: false, error: 'Enter an absolute http(s) URL' };
+    return { ok: false, error: 'Enter an origin such as http://localhost:8080' };
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, error: 'Only http and https destinations are supported' };
   if (u.username || u.password) return { ok: false, error: 'Destination must not contain credentials' };
-  if (u.search || u.hash) return { ok: false, error: 'Destination must not contain a query or fragment; the original query is kept' };
-  return { ok: true, href: u.href };
+  if ((u.pathname !== '/' && u.pathname !== '') || u.search || u.hash) return { ok: false, error: 'Enter only the origin; use Path rewrite for the path' };
+  return { ok: true, origin: u.origin };
 }
 
 /** Transform eligibility for an XHR response type. XHR body editing is not part of R0. */
@@ -152,11 +224,3 @@ export function xhrTransformSkip(responseType: XMLHttpRequestResponseType): stri
 }
 
 export const BODYLESS_STATUS = new Set([101, 103, 204, 205, 304]);
-
-export function validateMockStatus(n: number): string | null {
-  return Number.isInteger(n) && n >= 200 && n <= 599 ? null : 'Status must be an integer from 200 to 599';
-}
-
-export function validateDelay(n: number): string | null {
-  return Number.isInteger(n) && n >= 0 && n <= LIMITS.delayMaxMs ? null : `Delay must be 0–${LIMITS.delayMaxMs} ms`;
-}

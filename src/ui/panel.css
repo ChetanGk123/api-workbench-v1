@@ -1,19 +1,46 @@
-/* R0 panel additions on top of the supplied zinc theme. */
+/* Panel additions on top of the supplied zinc theme (layout values from design/reference/screens). */
 [hidden]{display:none!important}
-.aw-panel{width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px);box-shadow:0 12px 40px rgba(0,0,0,.5)}
-.aw-scroll{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
-.aw-gap0{gap:0}.aw-gap4{gap:4px}.aw-gap12{gap:12px}
-.aw-h,.aw-cap{margin:0}
-.aw-hint{margin:0}
-.aw-fld .aw-lbl{text-align:left}
-.aw-err{font-size:12px;color:#f87171}.aw-err:empty{display:none}
+.aw-panel{width:min(480px,calc(100vw - 32px));max-height:calc(100vh - 32px);box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.aw-panel .aw-body{overflow:auto}
+.aw-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;margin:0}
+.aw-gap2{gap:2px}.aw-gap4{gap:4px}.aw-gap6{gap:6px}.aw-gap8{gap:8px}.aw-gap10{gap:10px}.aw-gap12{gap:12px}
+.aw-mt2{margin-top:2px}.aw-m0{margin:0}.aw-h13{font-size:13px}.aw-h18{height:18px}
+.aw-h{margin:0}.aw-hint{margin:0}.aw-cap{margin:0}
+.aw-between{justify-content:space-between}.aw-end{justify-content:flex-end}.aw-top{align-items:flex-start}.aw-push{margin-left:auto}
+.aw-w104{width:104px;flex-shrink:0}
+.aw-fg{color:var(--aw-zinc-50)}
 .aw-wrap{white-space:normal;overflow-wrap:anywhere}
-.aw-act{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto}
-.aw-actrow{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:4px 8px;border:1px solid var(--aw-zinc-800);border-radius:8px;background:var(--aw-zinc-925);color:var(--aw-zinc-50);font:inherit;text-align:left;cursor:pointer}
+.aw-tb .aw-brand{cursor:default}
+.aw-inds{gap:6px;margin-left:2px}
+.aw-tbm .aw-dot,.aw-ind .aw-dot{width:5px;height:5px}
+.aw-ind{position:relative}.aw-ind .aw-dot{position:absolute;top:4px;right:4px}
+.aw-tt{font-family:inherit;background:transparent;cursor:pointer}
+.aw-tt .aw-d.aw-dg{background:#22c55e}
+.aw-notice{margin:10px 12px 0}
+.aw-back{padding:0 8px}
+.aw-err{font-size:12px;color:#f87171}.aw-err:empty{display:none}
+.aw-root [aria-invalid]{border-color:rgba(248,113,113,.6)}
+.aw-select{appearance:none;cursor:pointer;padding-right:28px;background-image:linear-gradient(45deg,transparent 50%,var(--aw-zinc-500) 50%),linear-gradient(135deg,var(--aw-zinc-500) 50%,transparent 50%);background-position:calc(100% - 15px) 14px,calc(100% - 10px) 14px;background-size:5px 5px;background-repeat:no-repeat}
+.aw-select option{background:var(--aw-zinc-900);color:var(--aw-zinc-50)}
+.aw-btn:disabled{opacity:.5;cursor:not-allowed}
+.aw-rule{gap:10px;padding:10px 8px 10px 12px}
+.aw-rulebtn{gap:3px;min-width:0;background:transparent;border:0;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.aw-rname{font-weight:500}
+.aw-meta{gap:6px;font-size:11px;color:var(--aw-zinc-400);min-width:0}
+.aw-arrow{color:var(--aw-zinc-500)}
+.aw-traffic{list-style:none;margin:0;padding:0;max-height:300px;overflow:auto}
+.aw-actrow{width:100%;height:auto;min-height:38px;gap:8px;background:transparent;border:0;color:var(--aw-zinc-50);font:inherit;text-align:left;cursor:pointer}
 .aw-actrow:hover{background:var(--aw-zinc-900)}
-.aw-actrow[aria-expanded="true"]{border-color:var(--aw-zinc-700)}
+.aw-detail{padding:10px 12px;background:var(--aw-zinc-940);border-top:1px solid var(--aw-zinc-800)}
 .aw-ops{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
 .aw-ops .aw-row{align-items:flex-start}
-.aw-launcher{flex-direction:row;align-items:center;gap:6px;padding:6px;max-width:calc(100vw - 32px);box-shadow:0 8px 24px rgba(0,0,0,.5)}
-.aw-root button:focus-visible,.aw-root input:focus-visible,.aw-root textarea:focus-visible{outline:2px solid var(--aw-zinc-400);outline-offset:1px}
-.aw-root input[type=checkbox]{accent-color:var(--aw-zinc-50)}
+.aw-qa{cursor:pointer;font-family:inherit}
+.aw-launcher{flex-direction:row;align-items:center;gap:8px;height:52px;padding:0 8px 0 12px;border-radius:14px;max-width:calc(100vw - 32px);min-width:240px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.aw-vsep{width:1px;height:20px;background:var(--aw-zinc-800);flex-shrink:0}
+.aw-dialog{background:var(--aw-zinc-925);color:var(--aw-zinc-50);border:1px solid var(--aw-zinc-800);border-radius:10px;padding:16px;max-width:360px;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:13px}
+.aw-dialog::backdrop{background:rgba(0,0,0,.5)}
+.aw-dialog-text{margin:0 0 14px}
+.aw-root button:focus-visible,.aw-root input:focus-visible,.aw-root select:focus-visible,.aw-root textarea:focus-visible,.aw-dialog button:focus-visible{outline:2px solid var(--aw-zinc-400);outline-offset:1px}
+.aw-root h2:focus{outline:none}
+.aw-start{align-items:flex-start}
+.aw-hint:empty{display:none}

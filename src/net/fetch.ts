@@ -124,7 +124,7 @@ async function prepareRoute(input: RequestInfo | URL, init: RequestInit | undefi
 
 async function transformResponse(res: Response, t: { find: string; replace: string }, rec: ReqRecord, rt: Runtime): Promise<Response> {
   const skip = (reason: string) => {
-    rt.op(rec, 'transform', 'skipped', `${reason}; original response delivered`);
+    rt.op(rec, 'intercept', 'skipped', `${reason}; original response delivered`);
     return res;
   };
   if (res.type === 'opaque' || res.type === 'opaqueredirect' || !res.body) return skip('No readable response body');
@@ -147,6 +147,6 @@ async function transformResponse(res: Response, t: { find: string; replace: stri
   headers.delete('content-length');
   headers.delete('content-encoding');
   res.body!.cancel().catch(() => {});
-  rt.op(rec, 'transform', 'applied', 'Response text replaced; rebuilt Response does not keep url/redirected');
+  rt.op(rec, 'intercept', 'applied', 'Response text replaced; rebuilt Response does not keep url/redirected');
   return new Response(text.split(t.find).join(t.replace), { status: res.status, statusText: res.statusText, headers });
 }
