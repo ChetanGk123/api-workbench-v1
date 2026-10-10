@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>API Workbench — Import</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="../aw-theme.css">
+<style>body{margin:0;min-height:100vh;background:#1c1c20;display:flex;justify-content:center;align-items:flex-start;padding:40px 16px}</style>
+</head>
+<body>
+<div class="aw-root" style="width: 480px; ">
+<header class="aw-tb"><div class="aw-logo"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path></svg></div><div class="aw-brand">API Workbench</div><div class="aw-grow"></div><button type="button" class="aw-sel" style="width:auto;height:28px;font-size:12px;gap:6px;padding:0 8px" aria-label="Active profile"><span>Default</span><svg class="aw-i aw-i12" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 15 5 5 5-5"></path><path d="m7 9 5-5 5 5"></path></svg></button><a class="aw-btn aw-gh aw-ic aw-sm" href="Settings.html" aria-label="Settings"><svg class="aw-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></a><a class="aw-btn aw-gh aw-ic aw-sm" href="Import.html" aria-label="Import"><svg class="aw-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg></a><a class="aw-btn aw-gh aw-ic aw-sm" href="Minimized.html" aria-label="Minimize"><svg class="aw-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg></a><button type="button" class="aw-btn aw-gh aw-ic aw-sm" aria-label="Close"><svg class="aw-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></header><div class="aw-sub"><a class="aw-btn aw-gh aw-sm" href="home.html" style="justify-self:start;padding:0 8px"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg>Back</a><div class="aw-row" style="font-size:13.5px;font-weight:600;gap:7px"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>Import</div><div></div></div>
+<main class="aw-body">
+<button type="button" class="aw-btn aw-out aw-w aw-lg"><span class="aw-dot aw-r" style="width:8px;height:8px"></span>Start recording</button>
+<section class="aw-card aw-cp aw-col" style="gap:10px">
+  <label class="aw-lbl" for="imp">Paste or load JSON, cURL, or fetch()</label>
+  <textarea id="imp" class="aw-ta" style="height:150px" placeholder="Paste JSON, cURL, or fetch() here…"></textarea>
+  <div class="aw-g2" style="gap:8px">
+    <button type="button" class="aw-btn aw-pri"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Apply</button>
+    <button type="button" class="aw-btn aw-out"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path></svg>Choose file</button>
+  </div>
+</section>
+<section class="aw-card aw-cp aw-col" style="gap:10px">
+  <div class="aw-h" style="font-size:13px">Supported formats</div>
+  <div class="aw-col" style="gap:9px">
+    <div class="aw-row aw-xs"><span class="aw-bd aw-gr" style="width:112px;justify-content:center">Native</span><span class="aw-mu">Profile + endpoints JSON</span></div>
+    <div class="aw-row aw-xs"><span class="aw-bd aw-bl" style="width:112px;justify-content:center">Swagger / OpenAPI</span><span class="aw-mu">2.0 / 3.0</span></div>
+    <div class="aw-row aw-xs"><span class="aw-bd aw-am" style="width:112px;justify-content:center">HAR</span><span class="aw-mu">1.2</span></div>
+    <div class="aw-row aw-xs"><span class="aw-bd aw-vi" style="width:112px;justify-content:center">Postman</span><span class="aw-mu">v2.1</span></div>
+    <div class="aw-row aw-xs" style="align-items:flex-start"><span class="aw-bd aw-rd" style="width:112px;justify-content:center">Recorder</span><span class="aw-mu" style="text-wrap:pretty">Extension mode captures the whole tab; bookmarklet mode captures this frame</span></div>
+    <div class="aw-row aw-xs"><span class="aw-bd" style="width:112px;justify-content:center;color:#e4e4e7">cURL</span><span class="aw-mu">Copy as cURL from DevTools</span></div>
+    <div class="aw-row aw-xs"><span class="aw-bd" style="width:112px;justify-content:center;color:#e4e4e7">fetch()</span><span class="aw-mu">Copy as fetch from DevTools</span></div>
+  </div>
+</section>
+</main>
+
+</div>
+</body>
+</html>

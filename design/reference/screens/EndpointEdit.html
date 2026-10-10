@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>API Workbench — Edit endpoint</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="../aw-theme.css">
+<style>body{margin:0;min-height:100vh;background:#1c1c20;display:flex;justify-content:center;align-items:flex-start;padding:40px 16px}</style>
+</head>
+<body>
+<div class="aw-root" style="width: 480px; ">
+<header class="aw-tb"><div class="aw-logo"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path></svg></div><div class="aw-brand">API Workbench</div><span class="aw-row" style="gap:6px;margin-left:2px"><span class="aw-tbm" title="mock rules changed"><svg class="aw-i aw-i12" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="8" x="2" y="2" rx="2"></rect><rect width="20" height="8" x="2" y="14" rx="2"></rect><path d="M6 6h.01"></path><path d="M6 18h.01"></path></svg><span class="aw-dot aw-a"></span></span></span><div class="aw-grow"></div><button type="button" class="aw-sel" style="width:auto;height:28px;font-size:12px;gap:6px;padding:0 8px" aria-label="Active profile"><span>Wires</span><svg class="aw-i aw-i12" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 15 5 5 5-5"></path><path d="m7 9 5-5 5 5"></path></svg></button><a class="aw-btn aw-gh aw-ic aw-sm" href="Settings.html" aria-label="Settings"><svg class="aw-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></a><a class="aw-btn aw-gh aw-ic aw-sm" href="Import.html" aria-label="Import"><svg class="aw-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg></a><a class="aw-btn aw-gh aw-ic aw-sm" href="Minimized.html" aria-label="Minimize"><svg class="aw-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg></a><button type="button" class="aw-btn aw-gh aw-ic aw-sm" aria-label="Close"><svg class="aw-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></header><div class="aw-sub"><a class="aw-btn aw-gh aw-sm" href="Endpoints.html" style="justify-self:start;padding:0 8px"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg>Endpoints</a><div class="aw-row" style="font-size:13.5px;font-weight:600;gap:7px"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path></svg>post_wires_activity</div><div></div></div>
+<main class="aw-body">
+<div class="aw-row" style="gap:10px"><span class="aw-bd aw-m aw-POST">POST</span><span class="aw-h aw-mono" style="font-size:14px">post_wires_activity</span></div>
+<div class="aw-cap aw-capl">Request</div>
+<div class="aw-row" style="align-items:flex-end">
+  <div class="aw-fld" style="width:104px;flex-shrink:0"><span class="aw-lbl">Method</span><button type="button" class="aw-sel"><span>POST</span><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+  <div class="aw-fld aw-grow"><label class="aw-lbl" for="eu">URL</label><input id="eu" class="aw-in aw-mono" value="/api/wires/activity?RequestID=2db2-be7c-bfd4-86a1-2fbf&amp;SeqID=0073"></div>
+</div>
+<div class="aw-fld">
+  <div class="aw-row"><span class="aw-lbl">Headers</span><span class="aw-bd aw-s" style="height:18px">3</span></div>
+  <div class="aw-row" style="gap:6px"><input class="aw-in aw-mono" style="width:150px;flex-shrink:0" value="accept" aria-label="Header name"><input class="aw-in aw-mono aw-grow" value="application/json" aria-label="Header value"><button type="button" class="aw-btn aw-gh aw-ic" aria-label="Remove header"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+  <div class="aw-row" style="gap:6px"><input class="aw-in aw-mono" style="width:150px;flex-shrink:0" value="content-type" aria-label="Header name"><input class="aw-in aw-mono aw-grow" value="application/json" aria-label="Header value"><button type="button" class="aw-btn aw-gh aw-ic" aria-label="Remove header"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+  <div class="aw-row" style="gap:6px"><input class="aw-in aw-mono" style="width:150px;flex-shrink:0" value="x-device-footprint" aria-label="Header name"><input class="aw-in aw-mono aw-grow" value="version=3.5.1_4&amp;pm_fpua=mozilla/5.0 (windows nt 10.0; win64;" aria-label="Header value"><button type="button" class="aw-btn aw-gh aw-ic" aria-label="Remove header"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+  <div class="aw-row" style="justify-content:space-between">
+    <button type="button" class="aw-btn aw-out aw-sm"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>Add header</button>
+    <button type="button" class="aw-coll"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>Inherited from global <span class="aw-bd aw-s" style="height:18px">1</span></button>
+  </div>
+</div>
+<div class="aw-fld"><label class="aw-lbl" for="eb">Body</label><textarea id="eb" class="aw-ta" placeholder="Request body JSON — use {{endpoint.field}} for dependencies"></textarea></div>
+<div class="aw-cap aw-capl" style="margin-top:4px">Response</div>
+<pre class="aw-code" style="height:236px">{
+  <span class="aw-k">"activities"</span>: [
+    {
+      <span class="aw-k">"confirmationNumber"</span>: <span class="aw-s">"WX7K2P9QD"</span>,
+      <span class="aw-k">"paymentType"</span>: <span class="aw-s">"WIRE_OUT"</span>,
+      <span class="aw-k">"channelType"</span>: <span class="aw-s">"Client initiated"</span>,
+      <span class="aw-k">"type"</span>: <span class="aw-s">"One Time"</span>,
+      <span class="aw-k">"status"</span>: <span class="aw-s">"In Progress"</span>,
+      <span class="aw-k">"transferDateTime"</span>: <span class="aw-s">"2026-08-01T08:51:17-04:00"</span>,
+      <span class="aw-k">"amount"</span>: { <span class="aw-k">"value"</span>: <span class="aw-n">0.11</span>, <span class="aw-k">"currency"</span>: <span class="aw-s">"USD"</span> },
+      <span class="aw-k">"fromAccount"</span>: {
+        <span class="aw-k">"accountNumber"</span>: <span class="aw-s">"XXXXXX1234"</span>,</pre>
+<div class="aw-col" style="gap:0">
+  <button type="button" class="aw-coll"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>Available expressions <span class="aw-bd aw-s" style="height:18px">19</span></button>
+  <button type="button" class="aw-coll"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>Built-in variables</button>
+  <button type="button" class="aw-coll"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>Checks <span class="aw-bd" style="height:18px">auto: 2xx</span></button>
+</div>
+<div class="aw-cap aw-capl" style="margin-top:4px">Settings</div>
+<div class="aw-fld"><label class="aw-lbl" for="en">Name</label><input id="en" class="aw-in aw-mono" value="post_wires_activity"></div>
+<div class="aw-fld"><span class="aw-lbl">Base URL</span><button type="button" class="aw-sel"><span>default (auto)</span><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button><span class="aw-hint aw-mono" style="font-size:11px">→ https://dev.api.example.com</span></div>
+</main>
+<footer class="aw-foot"><a class="aw-btn aw-pri aw-grow" href="Endpoints.html"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"></path><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"></path><path d="M7 3v4a1 1 0 0 0 1 1h7"></path></svg>Save</a>
+<a class="aw-btn aw-out aw-grow" href="Endpoints.html"><svg class="aw-i aw-i14" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>Cancel</a></footer>
+</div>
+</body>
+</html>
