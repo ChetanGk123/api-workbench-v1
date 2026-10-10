@@ -12,7 +12,7 @@ Must not infer CORS vs TLS/DNS from one opaque error, claim server rollback, att
 
 ## Task S21.1 — Implement stable record inspection
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** shared read-only presentation by stable ID. **Status:** NOT STARTED in the clean rebuild (earlier rebuild/v2 work: [history](../history/R1_REPORT.md)). **Depends on:** DATA record/cache model, S00 navigation.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** shared read-only presentation by stable ID. **Status:** IMPLEMENTED for the R1 scope; verification incomplete ([R1 evidence](../R1_REPORT.md)). **Depends on:** DATA record/cache model, S00 navigation.
 
 1. Resolve record by ID and display immutable request/result identity; join available preview references by ID only.
 2. Label original vs effective values, source/transport/body state and redaction.
@@ -23,7 +23,7 @@ Must not infer CORS vs TLS/DNS from one opaque error, claim server rollback, att
 
 ## Task S21.2 — Implement operation reasons and timing lanes
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** final native behavior must match explainability. **Status:** NOT STARTED in the clean rebuild (earlier rebuild/v2 work: [history](../history/R1_REPORT.md)). **Depends on:** normalized operation outcomes, NETWORK capability.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** final native behavior must match explainability. **Status:** IMPLEMENTED for the R1 scope; verification incomplete ([R1 evidence](../R1_REPORT.md)). **Depends on:** normalized operation outcomes, NETWORK capability.
 
 1. Show selected rule/snapshot, winner priority/conditions, capability decision and actual effect per operation.
 2. Render mixed applied header/route plus skipped body case without flattening to a whole-request fail.

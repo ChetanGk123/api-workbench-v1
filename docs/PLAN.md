@@ -1,6 +1,6 @@
 # Delivery plan and first assigned slice
 
-Status: clean rebuild in this repository. R0 is implemented with 56 counted Chrome/core tests passing; saved-bookmark, Edge, restart and resource gates are NOT RUN, so no slice is complete. See [R0 evidence](R0_REPORT.md). R1 is next. The earlier `rebuild/v2` reports live in [history/](history/).
+Status: clean rebuild in this repository. R0 and R1 are implemented (75 counted Chrome/core tests pass); saved-bookmark, Edge, restart, real-zoom and resource gates are NOT RUN, so no slice is complete. See [R0 evidence](R0_REPORT.md) and [R1 evidence](R1_REPORT.md). R2 is next once assigned. The earlier `rebuild/v2` reports live in [history/](history/).
 
 Use **R** labels to avoid rewriting the current repository's M0–M10 history. Every internal slice remains pre-release until full v1 and real-browser gates pass. No slice is an excuse to drop a later feature.
 

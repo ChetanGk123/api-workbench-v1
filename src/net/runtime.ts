@@ -15,7 +15,8 @@ export interface ReqRecord {
   readonly startedAt: number;
   finalUrl?: string;
   responseType?: string;
-  ops: Op[];
+  /** Operations with `at`: ms after start when the state last changed (absent = decided at intake). */
+  ops: (Op & { at?: number })[];
   outcome: Outcome;
   status?: number;
   elapsedMs?: number;
@@ -86,6 +87,7 @@ export function createRuntime(origin: string, initial: Config): Runtime {
       if (!o) return;
       o.state = state;
       if (reason) o.reason = reason;
+      o.at = Math.round(performance.now() - rec.startedAt);
       changed();
     },
     note(rec, text) {
@@ -98,7 +100,7 @@ export function createRuntime(origin: string, initial: Config): Runtime {
       if (status !== undefined) rec.status = status;
       rec.elapsedMs = Math.round(performance.now() - rec.startedAt);
       // Anything still only "selected" never took effect.
-      for (const o of rec.ops) if (o.state === 'selected') { o.state = 'skipped'; o.reason = `Not applied: request ended (${outcome})`; }
+      for (const o of rec.ops) if (o.state === 'selected') { o.state = 'skipped'; o.reason = `Not applied: request ended (${outcome})`; o.at = rec.elapsedMs; }
       changed();
     },
     records: () => list,

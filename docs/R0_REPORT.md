@@ -77,4 +77,4 @@ After the UI was rebuilt to match the reference screens, the first run had 56/59
 
 - [ ] Steps above in Chrome, then in Edge after it is installed. Re-export the saved URL and compare it with the bookmark SHA-256.
 - [ ] `npm ci` from the lockfile; native-bookmark network capture; heap/long-idle measurements.
-- [ ] The R1 carry-over is now known: the panel can cover host controls, so drag/resize/geometry is first in R1.
+- [x] R1 carry-over: the panel could cover host controls. Drag/resize/geometry was implemented in [R1](R1_REPORT.md).

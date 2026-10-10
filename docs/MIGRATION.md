@@ -72,4 +72,4 @@ Rollback means reinstalling the prior full-inline bookmark and restoring its com
 
 ## What this task does not do
 
-The original documentation task did not implement or publish changes. The rebuild/v2 [R0 task](history/R0_REPORT.md) and the clean [R0](R0_REPORT.md) each add an isolated runtime and separate test bookmark. No database migration, production bookmark replacement, dependency upgrade or publishing has occurred. R0 verification remains open; R1 is separately assigned.
+The original documentation task did not implement or publish changes. The rebuild/v2 [R0 task](history/R0_REPORT.md) and the clean [R0](R0_REPORT.md) each add an isolated runtime and separate test bookmark. No database migration, production bookmark replacement, dependency upgrade or publishing has occurred. R0 and [R1](R1_REPORT.md) verification remain open. R1 stores one panel-geometry preference key (`api-workbench:geometry:v1`) in the host origin's localStorage.

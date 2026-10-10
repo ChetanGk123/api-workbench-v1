@@ -5,6 +5,7 @@ import {
   validateOrigin, validateRouteRule, xhrTransformSkip, LIMITS, type Config,
 } from '../src/net/plan';
 import { createRuntime, readBounded } from '../src/net/runtime';
+import { clampPos, parseGeometry } from '../src/ui/geometry';
 
 const ORIGIN = 'http://app.test';
 type Opts = { mock?: object | false; route?: object | false; intercept?: object | false; inactive?: boolean };
@@ -186,5 +187,34 @@ test.describe('runtime', () => {
     const pending = readBounded(streamOf([new Uint8Array(1)], 2000), 10, 5000, rt.own);
     setTimeout(() => rt.settleAll(), 50);
     expect(await pending).toMatchObject({ ok: false, reason: 'Workbench closed' });
+  });
+});
+
+test.describe('geometry (R1)', () => {
+  test('parseGeometry keeps only finite, in-range values', () => {
+    expect(parseGeometry(null)).toEqual({});
+    expect(parseGeometry('not json')).toEqual({});
+    expect(parseGeometry('{"panel":{"x":"10","y":5},"size":{"w":100,"h":900},"launcher":{"x":1e9,"y":0}}')).toEqual({});
+    expect(parseGeometry('{"panel":{"x":10,"y":5},"size":{"w":500,"h":600},"launcher":{"x":-3,"y":7}}'))
+      .toEqual({ panel: { x: 10, y: 5 }, size: { w: 500, h: 600 }, launcher: { x: -3, y: 7 } });
+  });
+
+  test('clampPos keeps the whole box on screen; top-left wins when it cannot fit', () => {
+    expect(clampPos({ x: 5000, y: -40 }, 480, 600, 1280, 800)).toEqual({ x: 800, y: 0 });
+    expect(clampPos({ x: 100, y: 100 }, 480, 600, 1280, 800)).toEqual({ x: 100, y: 100 });
+    expect(clampPos({ x: 50, y: 50 }, 480, 600, 360, 400)).toEqual({ x: 0, y: 0 });
+  });
+
+  test('ops carry the rule identity and a timing offset once settled', () => {
+    const c = cfg({ route: { ...dest, label: 'Accounts to B' }, mock: { method: 'POST' } });
+    const p = planRequest(c, ORIGIN, req('/api/mock-target'));
+    expect(p.ops.map((o) => o.rule)).toEqual(['Accounts to B']);
+    const rt = createRuntime(ORIGIN, c);
+    const rec = rt.start('fetch', 'GET', new URL('/api/mock-target', ORIGIN), p);
+    expect(rec.ops[0]!.at).toBeUndefined();
+    rt.op(rec, 'route', 'applied', 'Sent');
+    expect(rec.ops[0]!.at).toBeGreaterThanOrEqual(0);
+    const unnamed = planRequest(cfg({ mock: { method: 'GET' } }), ORIGIN, req('/api/mock-target'));
+    expect(unnamed.ops[0]!.rule).toBe('GET /api/mock-target');
   });
 });

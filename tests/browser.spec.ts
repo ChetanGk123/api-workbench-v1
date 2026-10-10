@@ -71,7 +71,7 @@ async function activate(page: Page, module: 'Mock' | 'Route' | 'Intercept') {
 async function newestDetail(page: Page) {
   await tab(page, 'Home');
   await page.locator('[data-api-workbench] button[data-id]').first().click();
-  return page.locator('[data-api-workbench] .aw-traffic li').first();
+  return page.locator('[data-api-workbench] .aw-detail');
 }
 
 test.beforeEach(async ({ page }) => {

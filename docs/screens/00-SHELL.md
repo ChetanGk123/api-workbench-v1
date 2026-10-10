@@ -22,7 +22,7 @@ View owns screen/return route, selected entity, filters/scroll/disclosure/focus 
 
 ## Task S00.1 — Build persistent navigation and focus routing
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** connected UI state with a clear contract. **Status:** NOT STARTED in the clean rebuild (earlier rebuild/v2 work: [history](../history/R1_REPORT.md)). **Depends on:** R0 lifecycle; shared model/view contract.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** connected UI state with a clear contract. **Status:** IMPLEMENTED for the R1 scope; verification incomplete ([R1 evidence](../R1_REPORT.md)). **Depends on:** R0 lifecycle; shared model/view contract.
 
 1. Create native shell regions and internal screen identifiers. Keep primary navigation mounted; allow a compact Modules selector for narrow panels.
 2. Store an explicit return context when opening editor/detail/run views. Carry list filter, scroll and selected row ID.
@@ -34,7 +34,7 @@ View owns screen/return route, selected entity, filters/scroll/disclosure/focus 
 
 ## Task S00.2 — Implement draft-safe dialogs and screen transitions
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** shared dirty-state and async-save races affect many screens. **Status:** NOT STARTED in the clean rebuild (earlier rebuild/v2 work: [history](../history/R1_REPORT.md)). **Depends on:** S00.1, DATA command/persistence behavior.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** shared dirty-state and async-save races affect many screens. **Status:** IMPLEMENTED for the R1 scope; verification incomplete ([R1 evidence](../R1_REPORT.md)). **Depends on:** S00.1, DATA command/persistence behavior.
 
 1. Give each editor an immutable base revision and separate mutable draft; compute dirty against meaningful saved fields.
 2. Route Back/Escape/profile switch/Close through one decision interface with Save, Discard and Keep editing where appropriate.
@@ -46,7 +46,7 @@ View owns screen/return route, selected entity, filters/scroll/disclosure/focus 
 
 ## Task S00.3 — Wire activity, minimize and true shutdown
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** UI controls must honor page/tester ownership and async cleanup. **Status:** NOT STARTED in the clean rebuild (earlier rebuild/v2 work: [history](../history/R1_REPORT.md)). **Depends on:** S00.1, verified R0 stop/close service.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** UI controls must honor page/tester ownership and async cleanup. **Status:** IMPLEMENTED for the R1 scope; verification incomplete ([R1 evidence](../R1_REPORT.md)). **Depends on:** S00.1, verified R0 stop/close service.
 
 1. Subscribe to bounded activity summaries, not full native request objects; batch updates without replacing an active editor.
 2. Show Stop all only when relevant and bind it to the lifecycle command that keeps UI open.

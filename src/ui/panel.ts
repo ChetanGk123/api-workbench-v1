@@ -1,12 +1,13 @@
 // Workbench panel following design/reference/screens: title bar, six module tabs, Home cards,
-// Mock/Intercept/Route screens with rule editors, traffic lists, and the minimized launcher.
-// Only R0 capabilities are wired; later modules state that they are not in this build.
+// Mock/Intercept/Route screens with rule editors, traffic lists, request detail and the minimized launcher.
+// Only R0/R1 capabilities are wired; later modules state that they are not in this build.
 import {
-  METHODS, newInterceptRule, newMockRule, newRouteRule, validateInterceptRule, validateMockRule, validateRouteRule,
-  type Config, type Errors, type InterceptRule, type MockRule, type Module, type Op, type RouteRule,
+  LIMITS, METHODS, newInterceptRule, newMockRule, newRouteRule, validateInterceptRule, validateMockRule, validateRouteRule,
+  type Config, type Errors, type InterceptRule, type MockRule, type Module, type RouteRule,
 } from '../net/plan';
 import type { ReqRecord, Runtime } from '../net/runtime';
 import { h, icon, type IconName } from './dom';
+import { clampPos, MIN_SIZE, readGeometry, writeGeometry, type Pos } from './geometry';
 import themeCss from '../../design/reference/aw-theme.css';
 import panelCss from './panel.css';
 
@@ -17,13 +18,16 @@ export interface Panel {
 }
 
 type RuleOf = { mock: MockRule; intercept: InterceptRule; route: RouteRule };
-type Screen = 'home' | 'test' | Module | 'chaos' | 'endpoints' | 'import' | 'settings';
+type Screen = 'home' | 'test' | Module | 'chaos' | 'endpoints' | 'import' | 'settings' | 'detail';
+/** Where Back goes, and what to put back there: scroll positions and the focused row/control key. */
+interface Ret { screen: Screen; scroll: number; listScroll: number; focus: string | null }
 interface Editor<M extends Module = Module> {
   module: M;
   draft: RuleOf[M];
   base: string;
   isNew: boolean;
   errors: Errors;
+  ret: Ret;
 }
 
 const MOD: Record<Module, { title: string; home: string; tab: string; icon: IconName; noun: string; effect: string; empty: string; traffic: string }> = {
@@ -39,14 +43,16 @@ const TABS: { id: Screen; label: string; icon: IconName }[] = [
   { id: 'route', label: 'Route', icon: 'route' },
   { id: 'chaos', label: 'Chaos', icon: 'flame' },
 ];
+const NAME: Record<Screen, string> = { home: 'Home', test: 'Test', mock: 'Mock', intercept: 'Intercept', route: 'Route', chaos: 'Chaos', endpoints: 'Endpoints', import: 'Import', settings: 'Settings', detail: 'request' };
 const LATER: Partial<Record<Screen, { title: string; icon: IconName; text: string }>> = {
   test: { title: 'API Tester', icon: 'flask', text: 'Saved endpoints, Once and plans are not in this build. Once arrives with endpoints (R2); plans and results follow in R6.' },
   chaos: { title: 'Chaos Engineering', icon: 'flame', text: 'Latency, faults and replay rules are not in this build. They arrive with the rule modules (R4).' },
   endpoints: { title: 'Endpoints', icon: 'book', text: 'Saved endpoints, headers and environments are not in this build. They arrive in R2.' },
   import: { title: 'Import', icon: 'import', text: 'Recorder, native and HAR import arrive in R3; Swagger/OpenAPI/Postman/cURL/fetch in R7.' },
-  settings: { title: 'Settings', icon: 'settings', text: 'Profiles, storage, limits and backup arrive in R2. This build keeps rules for the current page session only; reload clears them.' },
+  settings: { title: 'Settings', icon: 'settings', text: 'Profiles, storage, limits and backup arrive in R2. This build keeps rules for the current page session only; reload clears them. Panel position and size are remembered for this site.' },
 };
 const SHOWN = 50;
+const STEP = 16;
 
 export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void }): Panel {
   const life = new AbortController();
@@ -54,7 +60,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
 
   const host = document.createElement('div');
   host.setAttribute('data-api-workbench', opts.version);
-  for (const [k, v] of [['all', 'initial'], ['position', 'fixed'], ['top', '16px'], ['right', '16px'], ['z-index', '2147483647']]) host.style.setProperty(k!, v!);
+  for (const [k, v] of [['all', 'initial'], ['position', 'fixed'], ['top', '16px'], ['left', '16px'], ['z-index', '2147483647']]) host.style.setProperty(k!, v!);
   const root = host.attachShadow({ mode: 'open' });
   try {
     const sheet = new CSSStyleSheet();
@@ -68,18 +74,22 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   let screen: Screen = 'home';
   let editor: Editor | null = null;
   let live: (() => void) | null = null;
-  const expanded = new Set<number>();
   let follow = true;
+  let filterText = '';
+  let detailId = 0;
+  let detailRet: Ret | null = null;
+  let lastFocus: HTMLElement | null = null;
 
   // ---------- chrome
   const iconBtn = (name: IconName, label: string) => h('button', { class: 'aw-btn aw-gh aw-ic aw-sm', type: 'button', 'aria-label': label, title: label }, icon(name));
   const indicators = h('span', { class: 'aw-row aw-inds' });
+  const moveBtn = h('button', { class: 'aw-logo aw-move', type: 'button', 'data-move': true, 'aria-label': 'Move panel: arrow keys move, Shift+arrow keys resize', title: 'Drag to move · arrow keys move · Shift+arrows resize' }, icon('bolt', 'aw-i aw-i14'));
   const settingsBtn = iconBtn('settings', 'Settings');
   const importBtn = iconBtn('import', 'Import');
   const minimizeBtn = iconBtn('minus', 'Minimize');
   const closeBtn = iconBtn('x', 'Close API Workbench and remove its hooks');
   const header = h('header', { class: 'aw-tb' },
-    h('div', { class: 'aw-logo' }, icon('bolt', 'aw-i aw-i14')),
+    moveBtn,
     h('div', { class: 'aw-brand', title: `API Workbench ${opts.version} · ${rt.origin}` }, 'API Workbench'),
     indicators, h('div', { class: 'aw-grow' }), settingsBtn, importBtn, minimizeBtn, closeBtn);
 
@@ -87,7 +97,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   const tl = h('div', { class: 'aw-tl' });
   for (const t of TABS) {
     const dot = h('span', { class: 'aw-d aw-dg', hidden: true });
-    const btn = h('button', { class: 'aw-tt', type: 'button' }, icon(t.icon, 'aw-i aw-i14'), t.label, dot);
+    const btn = h('button', { class: 'aw-tt', type: 'button' }, icon(t.icon, 'aw-i aw-i14'), h('span', { class: 'aw-tlabel' }, t.label), dot);
     on(btn, 'click', () => go(t.id));
     tabBtns.set(t.id, { btn, dot });
     tl.append(btn);
@@ -117,24 +127,102 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   on(minimizeBtn, 'click', minimize);
   on(restoreBtn, 'click', () => restore());
   on(closeBtn, 'click', () => guard(opts.onClose));
-  on(launcherClose, 'click', opts.onClose);
+  on(launcherClose, 'click', () => {
+    if (dirty()) restore(); // show the draft the decision is about
+    guard(opts.onClose);
+  });
   on(panel, 'keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && editor && !dialog.open) {
+    if (e.key === 'Escape' && editor && screen !== 'detail' && !dialog.open) {
       // Prevent the browser's Escape default from closing the dialog we are about to open.
       e.preventDefault();
       e.stopPropagation();
-      const m = editor.module;
-      setTimeout(() => go(m));
+      setTimeout(leaveEditor);
     }
   });
+  for (const region of [main, foot]) on(region, 'focusin', (e: FocusEvent) => { lastFocus = e.target as HTMLElement; });
+
+  // ---------- geometry: preferences per origin, always clamped to the current viewport
+  const geo = readGeometry();
+  let storageWarned = false;
+  const saveGeo = () => {
+    if (writeGeometry(geo) || storageWarned) return;
+    storageWarned = true;
+    announce('Panel position is kept for this page session only: page storage is unavailable.');
+  };
+  const viewport = () => ({ vw: document.documentElement.clientWidth || innerWidth, vh: document.documentElement.clientHeight || innerHeight });
+  /** Apply stored size/position to whichever surface is visible; returns the clamped position. */
+  function place(): Pos {
+    const mini = !launcher.hidden;
+    const el = mini ? launcher : panel;
+    if (!mini) {
+      panel.style.width = geo.size ? `${geo.size.w}px` : '';
+      panel.style.height = geo.size ? `${geo.size.h}px` : '';
+    }
+    const r = el.getBoundingClientRect();
+    const { vw, vh } = viewport();
+    const p = clampPos((mini ? geo.launcher : geo.panel) ?? { x: vw - r.width - 16, y: 16 }, r.width, r.height, vw, vh);
+    host.style.left = `${p.x}px`;
+    host.style.top = `${p.y}px`;
+    return p;
+  }
+  function draggable(handle: HTMLElement, key: 'panel' | 'launcher') {
+    on(handle, 'pointerdown', (e: PointerEvent) => {
+      if (e.button !== 0 || (e.target as Element).closest('button:not([data-move]),input,select,textarea')) return;
+      e.preventDefault();
+      const sx = e.clientX, sy = e.clientY;
+      const start = { x: parseFloat(host.style.left), y: parseFloat(host.style.top) };
+      handle.setPointerCapture(e.pointerId);
+      const move = (ev: PointerEvent) => {
+        geo[key] = { x: start.x + ev.clientX - sx, y: start.y + ev.clientY - sy };
+        geo[key] = place();
+      };
+      const end = () => {
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', end);
+        handle.removeEventListener('pointercancel', end);
+        saveGeo();
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', end);
+      handle.addEventListener('pointercancel', end);
+    });
+  }
+  draggable(header, 'panel');
+  draggable(launcher, 'launcher');
+  const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  on(moveBtn, 'keydown', (e: KeyboardEvent) => {
+    const d = ARROWS[e.key];
+    if (!d) return;
+    e.preventDefault();
+    if (e.shiftKey) {
+      const r = panel.getBoundingClientRect();
+      geo.size = { w: Math.max(MIN_SIZE.w, Math.round(r.width) + d[0] * STEP), h: Math.max(MIN_SIZE.h, Math.round(r.height) + d[1] * STEP) };
+    } else {
+      geo.panel = { x: parseFloat(host.style.left) + d[0] * STEP, y: parseFloat(host.style.top) + d[1] * STEP };
+    }
+    geo.panel = place();
+    saveGeo();
+  });
+  // Native CSS resize grip: keep the user's size as the preference.
+  const ro = new ResizeObserver(() => {
+    if (panel.hidden || !panel.style.width || !panel.style.height) return;
+    const w = parseFloat(panel.style.width), hh = parseFloat(panel.style.height);
+    if (geo.size?.w === w && geo.size.h === hh) return;
+    geo.size = { w: Math.max(MIN_SIZE.w, w), h: Math.max(MIN_SIZE.h, hh) };
+    saveGeo();
+  });
+  ro.observe(panel);
+  on(window, 'resize', () => place());
 
   // ---------- config helpers
   const cfg = () => rt.config();
   function setModule<M extends Module>(m: M, patch: Partial<Config[M]>) {
     rt.setConfig({ ...cfg(), [m]: { ...cfg()[m], ...patch } });
   }
-  const announce = (text: string) => { status.textContent = text; };
+  function announce(text: string) { status.textContent = text; }
   const activeModules = () => (['mock', 'intercept', 'route'] as Module[]).filter((m) => cfg()[m].active);
+  /** The tab that owns the current view (an editor or request detail belongs to where it was opened). */
+  const owner = (): Screen => editor ? editor.module : screen === 'detail' ? detailRet?.screen ?? 'home' : screen;
 
   // ---------- navigation and draft guard
   function go(next: Screen) {
@@ -143,6 +231,35 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
       screen = next;
       render();
     });
+  }
+
+  /** Snapshot of the current view, used as a return destination. */
+  function here(): Ret {
+    const focused = root.activeElement?.closest?.('[data-key]');
+    return {
+      screen: owner(),
+      scroll: main.scrollTop,
+      listScroll: main.querySelector('.aw-traffic')?.scrollTop ?? 0,
+      focus: focused?.getAttribute('data-key') ?? null,
+    };
+  }
+
+  /** Return to a snapshot. Does not touch an open editor: Back from request detail keeps a Route draft. */
+  function goBack(r: Ret, focus = r.focus) {
+    screen = r.screen;
+    render(false);
+    main.scrollTop = r.scroll;
+    const list = main.querySelector('.aw-traffic');
+    if (list && !follow) list.scrollTop = r.listScroll;
+    const target = focus && main.querySelector<HTMLElement>(`[data-key="${focus}"]`);
+    if (target) target.focus();
+    else main.querySelector<HTMLElement>('[data-focus]')?.focus();
+    if (focus && !target && focus.startsWith('req-')) announce('That request is not shown in the current list.');
+  }
+
+  function leaveEditor() {
+    const ed = editor;
+    if (ed) guard(() => { editor = null; goBack(ed.ret); });
   }
 
   function dirty() {
@@ -188,26 +305,29 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   }
 
   // ---------- render
-  function render() {
+  /** Rebuild the current screen. `focusHeading` is for deliberate navigation; Back restores its own focus. */
+  function render(focusHeading = true) {
     live = null;
+    lastFocus = null;
     foot.replaceChildren();
     foot.hidden = true;
     const built = editor && editor.module !== 'route' ? editorScreen(editor as Editor<'mock' | 'intercept'>)
       : screen === 'home' ? homeScreen()
       : screen === 'mock' || screen === 'intercept' ? moduleScreen(screen)
       : screen === 'route' ? routeScreen()
+      : screen === 'detail' ? detailScreen()
       : laterScreen(screen);
     main.replaceChildren(...built.nodes);
     live = built.refresh ?? null;
     main.scrollTop = 0;
     refreshChrome();
     live?.();
-    (main.querySelector('[data-focus]') as HTMLElement | null)?.focus();
+    if (focusHeading) (main.querySelector('[data-focus]') as HTMLElement | null)?.focus();
   }
 
   function refreshChrome() {
     const act = activeModules();
-    const current: Screen = editor ? editor.module : screen;
+    const current = owner();
     for (const [id, { btn, dot }] of tabBtns) {
       const isOn = id === current;
       btn.classList.toggle('aw-on', isOn);
@@ -220,20 +340,21 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
       b.addEventListener('click', () => { restore(); go(m); });
       return b;
     }));
-    launcherState.textContent = act.length ? '' : 'No modules active';
+    launcherState.textContent = act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active';
     if (!editor || editor.module === 'route') {
       foot.hidden = act.length === 0;
       if (act.length) {
         const stop = h('button', { class: 'aw-btn aw-out aw-sm', type: 'button' }, icon('stop', 'aw-i aw-i12'), 'Stop all');
         stop.addEventListener('click', stopAll);
         foot.replaceChildren(h('span', { class: 'aw-xs aw-mu aw-grow' }, `Active: ${act.map((m) => MOD[m].tab).join(', ')}`), stop);
-      }
+      } else foot.replaceChildren();
     }
   }
 
   function stopAll() {
     rt.setConfig({ ...cfg(), mock: { ...cfg().mock, active: false }, intercept: { ...cfg().intercept, active: false }, route: { ...cfg().route, active: false } });
     announce('All modules deactivated. Requests already in progress keep their selected behavior.');
+    main.querySelector<HTMLElement>('[data-focus]')?.focus(); // the Stop all button just disappeared
   }
 
   // Data-only updates: coalesced to one frame; never rebuild inputs.
@@ -251,6 +372,11 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   const tile = (name: IconName) => h('div', { class: 'aw-tile' }, icon(name));
   const countBadge = () => h('span', { class: 'aw-bd aw-s aw-cnt' }, '0');
   const methodBadge = (m: string) => h('span', { class: `aw-bd aw-m aw-${m}` }, m === '*' ? 'ANY' : m);
+  const backButton = (to: Screen, onClick: () => void) => {
+    const b = h('button', { class: 'aw-btn aw-gh aw-sm aw-back', type: 'button', 'aria-label': `Back to ${NAME[to]}` }, icon('back', 'aw-i aw-i14'), 'Back');
+    b.addEventListener('click', onClick);
+    return b;
+  };
 
   function statusBadge(active: boolean) {
     return active ? h('span', { class: 'aw-bd aw-gr' }, h('span', { class: 'aw-dot aw-g' }), 'Active') : h('span', { class: 'aw-bd' }, h('span', { class: 'aw-dot' }), 'Inactive');
@@ -265,11 +391,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   function activateButton(m: Module, outline = false) {
     const btn = h('button', { class: 'aw-btn', type: 'button' });
     const hint = h('span', { class: 'aw-hint' });
-    btn.addEventListener('click', () => {
-      const active = !cfg()[m].active;
-      setModule(m, { active });
-      announce(`${MOD[m].tab} module ${active ? 'activated' : 'deactivated'}.`);
-    });
+    btn.addEventListener('click', () => toggleModule(m));
     const refresh = () => {
       const { active, rule } = cfg()[m];
       btn.className = `aw-btn ${active || outline ? 'aw-out' : 'aw-pri'}`;
@@ -283,6 +405,12 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     hint.id = `aw-act-${m}-hint`;
     btn.setAttribute('aria-describedby', hint.id);
     return { el: h('div', { class: 'aw-col aw-gap6 aw-start' }, btn, hint), refresh };
+  }
+
+  function toggleModule(m: Module) {
+    const active = !cfg()[m].active;
+    setModule(m, { active });
+    announce(`${MOD[m].tab} module ${active ? 'activated' : 'deactivated'}.`);
   }
 
   function checkbox(label: string, checked: boolean, onChange: (v: boolean) => void) {
@@ -310,11 +438,12 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     const refresh = () => {
       const r = cfg()[m].rule;
       if (!r) return wrap.replaceChildren(h('div', { class: 'aw-empty' }, m === 'intercept' ? 'No freestanding intercept rules' : `No ${m === 'route' ? 'page' : 'ad-hoc'} rules`));
+      if (wrap.contains(root.activeElement)) return; // data-only update; keep the focused control
       const name = ruleSummary(m, r);
       const meta = h('span', { class: 'aw-row aw-mono aw-meta' }, methodBadge(r.method), h('span', { class: 'aw-tr' }, r.path));
       if (m === 'mock') meta.append(h('span', { class: 'aw-arrow' }, '→'), h('span', { class: `aw-bd ${(r as MockRule).status < 400 ? 'aw-gr' : 'aw-rd'} aw-h18` }, String((r as MockRule).status)));
       if (m === 'route') meta.append(h('span', { class: 'aw-arrow' }, '→'), h('span', { class: 'aw-tr' }, (r as RouteRule).destinationOrigin + ((r as RouteRule).pathRewrite || '')));
-      const open = h('button', { class: 'aw-grow aw-col aw-rulebtn', type: 'button', 'aria-label': `Edit ${name}` }, h('span', { class: 'aw-rname' }, name), meta);
+      const open = h('button', { class: 'aw-grow aw-col aw-rulebtn', type: 'button', 'aria-label': `Edit ${name}`, 'data-key': `rule-${m}` }, h('span', { class: 'aw-rname' }, name), meta);
       open.addEventListener('click', () => openEditor(m, false));
       const del = h('button', { class: 'aw-btn aw-gh aw-ic aw-sm', type: 'button', 'aria-label': `Delete rule ${name}` }, icon('x'));
       del.addEventListener('click', () => deleteRule(m));
@@ -333,35 +462,41 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
       { label: 'Delete', cls: 'aw-dst', value: 'delete' },
     ]).then((v) => {
       if (v !== 'delete') return;
+      const back = editor?.ret;
       setModule(m, { rule: null, active: false });
       editor = null;
-      screen = m;
-      render();
       announce('Rule deleted; module deactivated.');
+      if (back) goBack(back);
+      else { screen = m; render(); }
     });
   }
 
   // ---------- traffic lists (shared by Home and module screens)
-  function traffic(filter: (r: ReqRecord) => boolean, empty: string, badge?: HTMLElement) {
+  const outcomeText = (r: ReqRecord) => r.outcome === 'ok' ? `HTTP ${r.status}` : r.outcome;
+  function headline(r: ReqRecord) {
+    const parts = r.ops.filter((o) => o.state !== 'selected').map((o) => `${o.state[0]!.toUpperCase()}${o.state.slice(1)} ${MOD[o.module].tab.toLowerCase()}`);
+    return parts.length ? parts.join(' · ') : r.ops.length ? 'Pending' : 'No rule matched';
+  }
+
+  function traffic(filter: (r: ReqRecord) => boolean, empty: string, badge?: HTMLElement, textFilter?: () => string) {
     const list = h('ol', { class: 'aw-card aw-list aw-traffic', 'aria-label': 'Requests, newest first' });
     const emptyEl = h('div', { class: 'aw-empty' }, empty);
     const more = h('div', { class: 'aw-hint' });
     const el = h('div', { class: 'aw-col aw-gap8' }, emptyEl, list, more);
     list.addEventListener('click', (e) => {
       const btn = (e.target as Element).closest('button[data-id]');
-      if (!btn) return;
-      const id = Number(btn.getAttribute('data-id'));
-      expanded.has(id) ? expanded.delete(id) : expanded.add(id);
-      refresh();
-      (list.querySelector(`button[data-id="${id}"]`) as HTMLElement | null)?.focus();
+      if (btn) openDetail(Number(btn.getAttribute('data-id')));
     });
     const refresh = () => {
-      const all = rt.records().filter(filter);
-      if (badge) badge.textContent = String(all.length);
+      const q = textFilter?.().trim().toLowerCase() ?? '';
+      const base = rt.records().filter(filter);
+      const all = q ? base.filter((r) => `${r.method} ${r.url} ${outcomeText(r)} ${headline(r)}`.toLowerCase().includes(q)) : base;
+      if (badge) badge.textContent = String(base.length);
       const shown = all.slice(-SHOWN).reverse();
       emptyEl.hidden = shown.length > 0;
+      emptyEl.textContent = q && base.length ? `No requests match “${q}”` : empty;
       list.hidden = shown.length === 0;
-      more.textContent = all.length > SHOWN ? `Showing latest ${SHOWN} of ${all.length}` : '';
+      more.textContent = all.length > SHOWN ? `Showing latest ${SHOWN} of ${all.length}` : q ? `${all.length} of ${base.length} match` : '';
       const focused = root.activeElement?.closest?.('button[data-id]')?.getAttribute('data-id');
       const top = list.scrollTop;
       list.replaceChildren(...shown.map(row));
@@ -372,34 +507,28 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   }
 
   function row(r: ReqRecord): HTMLElement {
-    const open = expanded.has(r.id);
     const effect = r.ops.find((o) => o.state === 'applied');
     const skipped = r.ops.some((o) => o.state === 'skipped' || o.state === 'failed');
     const tone = r.outcome === 'pending' ? 'aw-am' : r.outcome === 'ok' && (r.status ?? 0) < 400 ? 'aw-gr' : 'aw-rd';
-    const summary = h('button', { class: 'aw-li aw-actrow', type: 'button', 'data-id': String(r.id), 'aria-expanded': String(open) },
-      methodBadge(r.method),
-      h('span', { class: 'aw-tr aw-grow aw-mono aw-xs' }, pathOf(r.url) + (r.hasQuery ? '?…' : '')),
-      effect && h('span', { class: 'aw-bd aw-gr aw-h18' }, MOD[effect.module].tab),
-      skipped && h('span', { class: 'aw-bd aw-am aw-h18' }, 'skipped'),
-      h('span', { class: `aw-bd ${tone} aw-h18` }, r.outcome === 'ok' ? String(r.status) : r.outcome));
-    if (!open) return h('li', {}, summary);
-    const lines = [
-      `Request #${r.id} · ${r.transport.toUpperCase()}${r.responseType ? ` ${r.responseType}` : ''} · config revision ${r.revision}`,
-      `Original ${r.method} ${r.url}${r.hasQuery ? ' (query values hidden)' : ''}`,
-      r.finalUrl ? `Effective ${r.finalUrl}` : r.provider === 'mock' ? 'Effective: synthetic reply, nothing dispatched' : 'Effective: original URL',
-      `Outcome ${r.outcome}${r.status !== undefined ? ` · HTTP ${r.status}` : ''}${r.elapsedMs !== undefined ? ` · ${r.elapsedMs} ms observed (includes waits)` : ''}`,
-      'Bodies: not recorded in this build',
-    ];
-    return h('li', {}, summary,
-      h('div', { class: 'aw-detail aw-col aw-gap4 aw-xs' },
-        ...lines.map((l) => h('div', { class: 'aw-mono aw-wrap' }, l)),
-        r.ops.length ? h('ul', { class: 'aw-ops' }, ...r.ops.map(opLine)) : h('div', { class: 'aw-mu' }, 'No rule matched; passed through natively.'),
-        ...r.notes.map((n) => h('div', { class: 'aw-mu' }, n))));
+    const path = pathOf(r.url) + (r.hasQuery ? '?…' : '');
+    return h('li', {}, h('button', {
+      class: 'aw-li aw-actrow', type: 'button', 'data-id': String(r.id), 'data-key': `req-${r.id}`,
+      'aria-label': `Request ${r.id}: ${r.method} ${path} · ${headline(r)} · ${outcomeText(r)}. Open details`,
+    },
+    methodBadge(r.method),
+    h('span', { class: 'aw-tr aw-grow aw-mono aw-xs' }, path),
+    effect && h('span', { class: 'aw-bd aw-gr aw-h18' }, MOD[effect.module].tab),
+    skipped && h('span', { class: 'aw-bd aw-am aw-h18' }, 'skipped'),
+    h('span', { class: `aw-bd ${tone} aw-h18` }, r.outcome === 'ok' ? String(r.status) : r.outcome),
+    icon('chevronRight', 'aw-i aw-i14 aw-mu')));
   }
 
-  function opLine(o: Op) {
-    const tone = o.state === 'applied' ? 'aw-gr' : o.state === 'failed' ? 'aw-rd' : o.state === 'selected' ? 'aw-bl' : 'aw-am';
-    return h('li', { class: 'aw-row' }, h('span', { class: 'aw-bd' }, MOD[o.module].tab), h('span', { class: `aw-bd ${tone}` }, o.state), h('span', { class: 'aw-grow' }, o.reason));
+  function openDetail(id: number) {
+    detailRet = here();
+    detailRet.focus = `req-${id}`;
+    detailId = id;
+    screen = 'detail';
+    render();
   }
 
   // ---------- screens
@@ -415,18 +544,30 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     };
     const moduleCard = (m: Module) => {
       const badgeSlot = h('span', {});
-      const sub = h('div', { class: 'aw-xs aw-mu' });
+      const sub = h('div', { class: 'aw-xs aw-mu aw-wrap' });
       const openBtn = h('button', { class: 'aw-btn aw-gh aw-sm', type: 'button', 'aria-label': `Open ${MOD[m].home}` }, 'Open', icon('chevronRight', 'aw-i aw-i14'));
-      const manage = h('button', { class: 'aw-btn aw-out aw-sm', type: 'button' }, 'Manage rules');
+      // One primary action, chosen from state: New rule → Activate → Deactivate; a disabled rule leads to the list.
+      const primary = h('button', { class: 'aw-btn aw-sm', type: 'button', 'data-key': `card-${m}` });
+      let action: 'new' | 'toggle' | 'manage' = 'new';
       openBtn.addEventListener('click', () => go(m));
-      manage.addEventListener('click', () => go(m));
+      primary.addEventListener('click', () => action === 'new' ? openEditor(m, true) : action === 'toggle' ? toggleModule(m) : go(m));
       refreshers.push(() => {
-        badgeSlot.replaceChildren(statusBadge(cfg()[m].active));
-        sub.textContent = `${enabledText(m)} · ${effectCount(m)} ${MOD[m].effect}`;
+        const { active, rule } = cfg()[m];
+        const n = effectCount(m);
+        badgeSlot.replaceChildren(statusBadge(active));
+        action = !rule ? 'new' : rule.enabled || active ? 'toggle' : 'manage';
+        const label = action === 'new' ? 'New rule' : action === 'manage' ? 'Manage rules' : active ? 'Deactivate' : 'Activate';
+        primary.className = `aw-btn aw-sm ${action === 'toggle' && !active ? 'aw-pri' : 'aw-out'}`;
+        primary.replaceChildren(icon(action === 'new' ? 'plus' : action === 'manage' ? 'chevronRight' : active ? 'stop' : 'play', 'aw-i aw-i14'), label);
+        primary.setAttribute('aria-label', action === 'new' ? `New ${MOD[m].tab} rule` : action === 'manage' ? `Manage ${MOD[m].tab} rules` : `${label} ${MOD[m].tab} module`);
+        sub.textContent = !rule ? 'No rules yet'
+          : !rule.enabled ? `0 of 1 rules enabled${active ? ' · Module active: traffic unaffected' : ''}`
+          : !active ? '1 enabled rule · Module inactive: traffic unaffected'
+          : `1 enabled rule · ${n} ${MOD[m].effect}`;
       });
-      return h('section', { class: 'aw-card aw-cp aw-col aw-gap12' },
+      return h('section', { class: 'aw-card aw-cp aw-col aw-gap12', 'aria-label': MOD[m].home },
         h('div', { class: 'aw-row aw-gap10' }, tile(MOD[m].icon), h('div', { class: 'aw-grow' }, h('div', { class: 'aw-row aw-gap8' }, h('span', { class: 'aw-h' }, MOD[m].home), badgeSlot), sub), openBtn),
-        h('div', { class: 'aw-row' }, manage));
+        h('div', { class: 'aw-row' }, primary));
     };
     const qa = (label: string, iconName: IconName, target: Screen) => {
       const b = h('button', { class: 'aw-qa', type: 'button' }, icon(iconName), h('span', {}, label));
@@ -434,11 +575,14 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
       return b;
     };
     const count = countBadge();
-    const t = traffic(() => true, 'No requests yet. Page Fetch/XHR calls made after launch appear here.', count);
+    const filterIn = h('input', { class: 'aw-in', id: 'aw-filter', type: 'search', placeholder: 'Filter by method, path, outcome or effect', spellcheck: 'false' });
+    filterIn.value = filterText;
+    const t = traffic(() => true, 'No requests yet. Page Fetch/XHR calls made after launch appear here.', count, () => filterText);
+    filterIn.addEventListener('input', () => { filterText = filterIn.value; t.refresh(); });
     refreshers.push(t.refresh);
     const followCb = checkbox('Follow newest', follow, (v) => { follow = v; t.refresh(); });
-    const clear = h('button', { class: 'aw-btn aw-gh aw-sm', type: 'button' }, 'Clear');
-    clear.addEventListener('click', () => { expanded.clear(); rt.clearRecords(); });
+    const clear = h('button', { class: 'aw-btn aw-gh aw-sm', type: 'button', 'aria-label': 'Clear recent activity' }, 'Clear');
+    clear.addEventListener('click', () => { rt.clearRecords(); announce('Recent activity cleared.'); });
     return {
       nodes: [
         h('h2', { class: 'aw-sr', tabindex: '-1', 'data-focus': true }, 'Home'),
@@ -449,8 +593,9 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
           h('div', { class: 'aw-g3' }, qa('Endpoints', 'book', 'endpoints'), qa('Import', 'import', 'import'), qa('Settings', 'settings', 'settings'))),
         h('div', { class: 'aw-col aw-gap8 aw-mt2' },
           h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl aw-grow' }, h('span', {}, 'Recent activity '), count), h('span', { class: 'aw-chk' }, followCb, 'Follow newest'), clear),
+          h('label', { class: 'aw-sr', for: 'aw-filter' }, 'Filter recent activity'), filterIn,
           t.el),
-        h('p', { class: 'aw-hint aw-wrap' }, `Version ${opts.version} · Frame ${rt.origin} · Current-frame Fetch/XHR after launch only. Rules last for this page session.`),
+        h('p', { class: 'aw-hint aw-wrap' }, `Version ${opts.version} · Frame ${rt.origin} · Current-frame Fetch/XHR after launch only. Rules last for this page session; the latest ${LIMITS.records} requests are kept.`),
       ],
       refresh: () => refreshers.forEach((f) => f()),
     };
@@ -521,13 +666,78 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     return { nodes: [h('div', { class: 'aw-row aw-gap10' }, tile(info.icon), heading(info.title), h('span', { class: 'aw-bd' }, 'Not in this build')), h('div', { class: 'aw-empty aw-wrap' }, info.text)] };
   }
 
+  // ---------- request detail (S21.1/S21.2 R1 portion): one record by stable ID, read-only, sends nothing
+  function detailScreen(): Built {
+    const ret = detailRet ?? { screen: 'home', scroll: 0, listScroll: 0, focus: null };
+    const id = detailId;
+    const content = h('div', { class: 'aw-col aw-gap12 aw-detail' });
+    let shown = '';
+    const refresh = () => {
+      const r = rt.records().find((x) => x.id === id);
+      const sig = r ? `${r.outcome}|${r.status}|${r.responseType}|${r.ops.map((o) => o.state + o.reason).join()}|${r.notes.length}` : 'gone';
+      if (sig === shown) return; // unchanged: keep any text selection
+      shown = sig;
+      content.replaceChildren(...(r ? detailBody(r) : [h('div', { class: 'aw-empty aw-wrap' },
+        `Request #${id} is no longer retained. Recent activity keeps the latest ${LIMITS.records} requests, and Clear removes them. Nothing was re-sent.`)]));
+    };
+    return {
+      nodes: [
+        h('div', { class: 'aw-row' }, backButton(ret.screen, () => goBack(ret)), heading(`Request #${id}`)),
+        content,
+      ],
+      refresh,
+    };
+  }
+
+  function detailBody(r: ReqRecord): Node[] {
+    const routed = r.ops.find((o) => o.module === 'route' && o.state === 'applied');
+    const mocked = r.ops.find((o) => o.module === 'mock' && o.state === 'applied');
+    const transport = r.transport === 'fetch' ? 'Fetch' : `XHR${r.responseType ? ` · responseType ${r.responseType}` : ''}`;
+    const effective = mocked ? 'Synthetic reply; nothing was sent'
+      : routed && r.finalUrl ? `${r.method} ${r.finalUrl}${r.hasQuery ? ' (query preserved)' : ''}`
+      : r.outcome === 'pending' && r.ops.some((o) => o.state === 'selected') ? 'Not decided yet'
+      : 'Original URL sent';
+    const outcome = r.outcome === 'pending' ? 'Pending — not complete'
+      : `${r.outcome === 'ok' ? `HTTP ${r.status}` : r.outcome === 'error' ? 'Network error (rejected/failed)' : r.outcome === 'aborted' ? 'Aborted by the caller' : 'Timed out'}${r.elapsedMs !== undefined ? ` · ${r.elapsedMs} ms observed (includes Workbench waits; not server time)` : ''}`;
+    const dl = (rows: [string, string][]) => h('dl', { class: 'aw-dl' }, ...rows.flatMap(([k, v]) => [h('dt', {}, k), h('dd', { class: 'aw-mono' }, v)]));
+    const section = (title: string, ...kids: Node[]) => h('section', { class: 'aw-col aw-gap6', 'aria-label': title }, h('h3', { class: 'aw-cap' }, title), ...kids);
+    return [
+      h('p', { class: 'aw-m0 aw-fg aw-wrap' }, `${headline(r)} · ${r.transport === 'fetch' ? 'Fetch' : `XHR ${r.responseType ?? ''}`.trim()} · ${mocked ? 'synthetic reply' : routed ? 'routed URL sent' : r.outcome === 'pending' ? 'in progress' : 'original URL sent'}`),
+      section('Overview', dl([
+        ['Source', `This frame (${rt.origin}) · page ${r.transport === 'fetch' ? 'fetch()' : 'XMLHttpRequest'}`],
+        ['Transport', transport],
+        ['Original', `${r.method} ${r.url}${r.hasQuery ? ' (query values not stored)' : ''}`],
+        ['Effective', effective],
+        ['Outcome', outcome],
+        ['Config', `Revision ${r.revision}, captured when the request started`],
+      ])),
+      section('Why',
+        r.ops.length ? h('ul', { class: 'aw-ops' }, ...r.ops.map((o) => {
+          const tone = o.state === 'applied' ? 'aw-gr' : o.state === 'failed' ? 'aw-rd' : o.state === 'selected' ? 'aw-bl' : 'aw-am';
+          return h('li', { class: 'aw-row' },
+            h('span', { class: 'aw-bd' }, MOD[o.module].tab), h('span', { class: `aw-bd ${tone}` }, o.state),
+            h('span', { class: 'aw-grow aw-wrap' }, o.rule ? h('span', { class: 'aw-fg' }, `${o.rule}: `) : '', o.reason),
+            h('span', { class: 'aw-xs aw-mu aw-mono' }, o.at === undefined ? 'at start' : `+${o.at} ms`));
+        })) : h('div', { class: 'aw-mu aw-wrap' }, 'No enabled rule in an active module matched; the request passed through natively.'),
+        ...r.notes.map((n) => h('div', { class: 'aw-mu aw-wrap' }, n))),
+      section('Bodies', h('div', { class: 'aw-mu aw-wrap' }, 'Request and response bodies are not captured in this build. Headers are not recorded either; nothing here was stored or re-sent.')),
+    ];
+  }
+
   // ---------- editors
   function openEditor(m: Module, isNew: boolean) {
+    const ret = here();
     const existing = cfg()[m].rule;
     const draft = (isNew || !existing ? (m === 'mock' ? newMockRule() : m === 'route' ? newRouteRule() : newInterceptRule()) : { ...existing }) as RuleOf[Module];
-    editor = { module: m, draft, base: JSON.stringify(draft), isNew: isNew || !existing, errors: {} };
+    editor = { module: m, draft, base: JSON.stringify(draft), isNew: isNew || !existing, errors: {}, ret };
     screen = m;
     render();
+  }
+
+  /** After a successful save: back to where the editor was opened, focusing the saved rule when it is shown there. */
+  function savedAndBack(ed: Editor) {
+    editor = null;
+    goBack(ed.ret, ed.ret.screen === ed.module ? `rule-${ed.module}` : ed.ret.focus);
   }
 
   const errEls = new Map<string, HTMLElement>();
@@ -570,9 +780,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
 
   function editorScreen(ed: Editor<'mock' | 'intercept'>): Built {
     errEls.clear();
-    const back = h('button', { class: 'aw-btn aw-gh aw-sm aw-back', type: 'button', 'aria-label': `Back to ${MOD[ed.module].tab}` }, icon('back', 'aw-i aw-i14'), 'Back');
-    back.addEventListener('click', () => go(ed.module));
-    const body: Node[] = [h('div', { class: 'aw-row' }, back, heading(`${ed.isNew ? 'New' : 'Edit'} ${MOD[ed.module].noun}`)), ...commonFields(ed)];
+    const body: Node[] = [h('div', { class: 'aw-row' }, backButton(ed.ret.screen, leaveEditor), heading(`${ed.isNew ? 'New' : 'Edit'} ${MOD[ed.module].noun}`)), ...commonFields(ed)];
     if (ed.module === 'mock') {
       const d = ed.draft as MockRule;
       body.push(h('section', { class: 'aw-card aw-cp aw-col aw-gap12' }, h('div', { class: 'aw-h aw-h13' }, 'Response'),
@@ -590,11 +798,11 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     body.push(enabledRow(ed), effectHint(ed.module));
 
     const save = h('button', { class: 'aw-btn aw-pri aw-grow', type: 'button' }, icon('save', 'aw-i aw-i14'), 'Save');
-    save.addEventListener('click', () => { if (commitEditor()) { editor = null; render(); } });
+    save.addEventListener('click', () => { if (commitEditor()) savedAndBack(ed); });
     const second = ed.isNew
       ? h('button', { class: 'aw-btn aw-out aw-grow', type: 'button' }, 'Cancel')
       : h('button', { class: 'aw-btn aw-dst aw-grow', type: 'button' }, icon('trash', 'aw-i aw-i14'), 'Delete');
-    second.addEventListener('click', () => (ed.isNew ? go(ed.module) : deleteRule(ed.module)));
+    second.addEventListener('click', () => (ed.isNew ? leaveEditor() : deleteRule(ed.module)));
     foot.replaceChildren(save, second);
     foot.hidden = false;
     return { nodes: body };
@@ -604,17 +812,19 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     errEls.clear();
     const d = ed.draft;
     const save = h('button', { class: 'aw-btn aw-pri', type: 'button' }, icon('save', 'aw-i aw-i14'), 'Save rule');
-    save.addEventListener('click', () => { if (commitEditor()) { editor = null; render(); } });
+    save.addEventListener('click', () => { if (commitEditor()) savedAndBack(ed); });
     const cancel = h('button', { class: 'aw-btn aw-out', type: 'button' }, 'Cancel');
-    cancel.addEventListener('click', () => go('route'));
+    cancel.addEventListener('click', leaveEditor);
     const actions = h('div', { class: 'aw-row' }, save, cancel);
     if (!ed.isNew) {
       const del = h('button', { class: 'aw-btn aw-dst aw-push', type: 'button' }, icon('trash', 'aw-i aw-i14'), 'Delete');
       del.addEventListener('click', () => deleteRule('route'));
       actions.append(del);
     }
+    const head = h('div', { class: 'aw-row' }, heading(ed.isNew ? 'New page rule' : 'Edit page rule', 'aw-h aw-h13'));
+    if (ed.ret.screen !== 'route') head.prepend(backButton(ed.ret.screen, leaveEditor));
     return h('section', { class: 'aw-card aw-cp aw-col aw-gap12' },
-      heading(ed.isNew ? 'New page rule' : 'Edit page rule', 'aw-h aw-h13'),
+      head,
       h('div', { class: 'aw-g2' },
         field('aw-label', 'label', 'Label', bindText(d, 'label', 'aw-label', { placeholder: 'e.g. Local wires API' })),
         field('aw-method', 'method', 'Method (* = any)', methodSelect(d)),
@@ -655,19 +865,25 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     return true;
   }
 
-  // ---------- minimize / restore
+  // ---------- minimize / restore (Minimize never stops work; the DOM, draft and scroll stay as they are)
   function minimize() {
     panel.hidden = true;
     launcher.hidden = false;
+    place();
     restoreBtn.focus();
   }
   function restore() {
+    const wasHidden = panel.hidden;
     launcher.hidden = true;
     panel.hidden = false;
-    (main.querySelector('[data-focus]') as HTMLElement | null)?.focus();
+    place();
+    if (!wasHidden) return;
+    const keep = lastFocus && (main.contains(lastFocus) || foot.contains(lastFocus));
+    (keep ? lastFocus : main.querySelector<HTMLElement>('[data-focus]'))?.focus();
   }
 
   render();
+  place();
 
   return {
     restore,
@@ -679,6 +895,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     destroy() {
       cancelAnimationFrame(frame);
       unsubscribe();
+      ro.disconnect();
       life.abort();
       if (dialog.open) dialog.close();
       host.remove();

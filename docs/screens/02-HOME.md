@@ -12,7 +12,7 @@ Home must not start a mutating plan or activate every module just because it ope
 
 ## Task S02.1 — Render first-use and module status cards
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** state-derived UI and clear empty states. **Status:** NOT STARTED in the clean rebuild (earlier rebuild/v2 work: [history](../history/R1_REPORT.md)). **Depends on:** S00.1 and module/runtime selectors.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** state-derived UI and clear empty states. **Status:** IMPLEMENTED for the R1 scope; verification incomplete ([R1 evidence](../R1_REPORT.md)). **Depends on:** S00.1 and module/runtime selectors.
 
 1. Derive card summaries from config and runtime separately; render display labels, counts and text+color states.
 2. Wire Open/New rule/Activate/Deactivate to shared navigation/domain commands; show impact before activating fault rules where the editor requires it.
@@ -23,7 +23,7 @@ Home must not start a mutating plan or activate every module just because it ope
 
 ## Task S02.2 — Show useful activity and history
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** bounded summaries and navigation by stable IDs. **Status:** NOT STARTED in the clean rebuild (earlier rebuild/v2 work: [history](../history/R1_REPORT.md)). **Depends on:** request/run record selectors and S21.1.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** bounded summaries and navigation by stable IDs. **Status:** IMPLEMENTED for the R1 scope; verification incomplete ([R1 evidence](../R1_REPORT.md)). **Depends on:** request/run record selectors and S21.1.
 
 1. Render newest bounded request summaries with method/name/service/outcome/source and openable request IDs.
 2. Display selected/applied/skipped reasons as concise summaries; preserve body omission labels.

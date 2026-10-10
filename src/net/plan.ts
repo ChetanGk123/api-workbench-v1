@@ -8,6 +8,8 @@ export interface Op {
   module: Module;
   state: OpState;
   reason: string;
+  /** Readable identity of the rule that produced this operation. */
+  rule?: string;
 }
 
 export const METHODS = ['*', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
@@ -110,34 +112,35 @@ export function planRequest(cfg: Config, launchOrigin: string, req: Intake): Pla
   if (!mockRule && !routeRule && !icRule) return NO_MATCH(cfg.revision);
 
   const ops: Op[] = [];
+  const ruleName = (r: RuleBase) => r.label || `${r.method === '*' ? 'Any' : r.method} ${r.path}`;
   const syncReason = 'Synchronous XHR is passed through unchanged';
   let provider: Plan['provider'] = 'network';
   let routeTo: URL | undefined;
   let transform: { find: string; replace: string } | undefined;
 
   if (mockRule) {
-    if (req.sync) ops.push({ module: 'mock', state: 'skipped', reason: syncReason });
+    if (req.sync) ops.push({ module: 'mock', rule: ruleName(mockRule), state: 'skipped', reason: syncReason });
     else {
       provider = 'mock';
-      ops.push({ module: 'mock', state: 'selected', reason: 'Synthetic reply; no upstream request' });
+      ops.push({ module: 'mock', rule: ruleName(mockRule), state: 'selected', reason: 'Synthetic reply; no upstream request' });
     }
   }
 
   if (routeRule) {
-    if (provider === 'mock') ops.push({ module: 'route', state: 'superseded', reason: 'Mock reply wins; nothing is dispatched' });
-    else if (req.sync) ops.push({ module: 'route', state: 'skipped', reason: syncReason });
+    if (provider === 'mock') ops.push({ module: 'route', rule: ruleName(routeRule), state: 'superseded', reason: 'Mock reply wins; nothing is dispatched' });
+    else if (req.sync) ops.push({ module: 'route', rule: ruleName(routeRule), state: 'skipped', reason: syncReason });
     else {
       routeTo = routedUrl(routeRule, req.url);
-      ops.push({ module: 'route', state: 'selected', reason: `Route to ${routeTo.origin}${routeTo.pathname}` });
+      ops.push({ module: 'route', rule: ruleName(routeRule), state: 'selected', reason: `Route to ${routeTo.origin}${routeTo.pathname}` });
     }
   }
 
   if (icRule) {
-    if (provider === 'mock') ops.push({ module: 'intercept', state: 'skipped', reason: 'R0 intercepts network responses only' });
-    else if (req.sync) ops.push({ module: 'intercept', state: 'skipped', reason: syncReason });
+    if (provider === 'mock') ops.push({ module: 'intercept', rule: ruleName(icRule), state: 'skipped', reason: 'R0 intercepts network responses only' });
+    else if (req.sync) ops.push({ module: 'intercept', rule: ruleName(icRule), state: 'skipped', reason: syncReason });
     else {
       transform = { find: icRule.find, replace: icRule.replace };
-      ops.push({ module: 'intercept', state: 'selected', reason: 'Replace response text' });
+      ops.push({ module: 'intercept', rule: ruleName(icRule), state: 'selected', reason: 'Replace response text' });
     }
   }
 

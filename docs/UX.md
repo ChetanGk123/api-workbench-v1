@@ -1,6 +1,6 @@
 # UX and screen specification
 
-Status: v1 UI contract, grounded in the supplied screens and the [end-user review](../END_USER_TEST_REPORT.md). In the clean rebuild only the R0 status panel exists ([R0_REPORT](R0_REPORT.md)); the workflows below remain specifications.
+Status: v1 UI contract, grounded in the supplied screens and the [end-user review](../END_USER_TEST_REPORT.md). In the clean rebuild the R0 panel and the R1 shell exist ([R0_REPORT](R0_REPORT.md), [R1_REPORT](R1_REPORT.md)); other workflows below remain specifications.
 
 The detailed implementation assignments are in [screen-by-screen tasks](screens/README.md). This document owns shared UX rules; those task sheets expand individual screens and supporting workspaces, including model/effort recommendations.
 

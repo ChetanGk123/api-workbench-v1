@@ -12,7 +12,7 @@ Must not hide active interception behind Close, stop work on Minimize, imply pau
 
 ## Task S20.1 — Build compact state and restore behavior
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** compact state-derived UI with focus restoration. **Status:** NOT STARTED in the clean rebuild (earlier rebuild/v2 work: [history](../history/R1_REPORT.md)). **Depends on:** S00.1/S00.3.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** compact state-derived UI with focus restoration. **Status:** IMPLEMENTED for the R1 scope; verification incomplete ([R1 evidence](../R1_REPORT.md)). **Depends on:** S00.1/S00.3.
 
 1. Derive active module/recording/run/pause summaries from runtime, no duplicated state machine.
 2. Use readable labels and text+color; profile value remains full in accessible name.
