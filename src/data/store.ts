@@ -5,7 +5,7 @@
 import { copyAggregate, defaultProfile, validateAggregate, type Aggregate, type Diag } from './schema';
 
 const DB = 'api-workbench-v2';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const ACTIVE = 'activeProfile';
 
 export class Conflict extends Error {}
@@ -22,8 +22,7 @@ function open(): Promise<IDBDatabase> {
   conn ??= new Promise<IDBDatabase>((resolve, reject) => {
     const r = indexedDB.open(DB, DB_VERSION);
     r.onupgradeneeded = () => {
-      r.result.createObjectStore('profiles');
-      r.result.createObjectStore('metadata');
+      for (const name of ['profiles', 'metadata', 'recorderDrafts']) if (!r.result.objectStoreNames.contains(name)) r.result.createObjectStore(name);
     };
     r.onsuccess = () => {
       const db = r.result;
@@ -72,9 +71,16 @@ export const store = {
       return revision;
     });
   },
-  /** Replace the listed profiles (or every profile) and the active pointer in one transaction. */
-  async replace(aggs: Aggregate[], activeId: string, remove: string[] | 'all'): Promise<Aggregate[]> {
+  /**
+   * Replace the listed profiles (or every profile) and the active pointer in one transaction.
+   * `expect` maps profile ID → stored revision the caller based its change on (0 = must not exist yet).
+   */
+  async replace(aggs: Aggregate[], activeId: string, remove: string[] | 'all', expect: Record<string, number> = {}): Promise<Aggregate[]> {
     return tx('readwrite', async (p, m) => {
+      for (const [id, rev] of Object.entries(expect)) {
+        const cur = (await req(p.get(id))) as Aggregate | undefined;
+        if ((cur?.revision ?? 0) !== rev) throw new Conflict(`Profile changed since the review (stored revision ${cur?.revision ?? 0}, review expected ${rev})`);
+      }
       if (remove === 'all') p.clear();
       else for (const id of remove) p.delete(id);
       const out: Aggregate[] = [];
@@ -90,6 +96,21 @@ export const store = {
   },
   async setActive(id: string): Promise<void> {
     await tx('readwrite', async (_p, m) => { m.put(id, ACTIVE); });
+  },
+};
+
+/** Recorder recovery: one bounded draft for this origin (the database is per origin). */
+export const recovery = {
+  async get(): Promise<unknown> {
+    const db = await open();
+    return req(db.transaction('recorderDrafts', 'readonly').objectStore('recorderDrafts').get('draft'));
+  },
+  async put(value: unknown | null): Promise<void> {
+    const db = await open();
+    const t = db.transaction('recorderDrafts', 'readwrite');
+    const done = new Promise<void>((resolve, reject) => { t.oncomplete = () => resolve(); t.onerror = t.onabort = () => reject(t.error ?? new Error('IndexedDB transaction failed')); });
+    if (value === null) t.objectStore('recorderDrafts').delete('draft'); else t.objectStore('recorderDrafts').put(value, 'draft');
+    await done;
   },
 };
 
@@ -132,7 +153,7 @@ export interface Session {
   create(name: string, copy: boolean): Promise<void>;
   rename(name: string): Promise<Diag[] | null>;
   remove(id: string): Promise<void>;
-  replaceAll(aggs: Aggregate[], activeId: string, scope: 'all' | 'add'): Promise<void>;
+  replaceAll(aggs: Aggregate[], activeId: string, scope: 'all' | 'add', expect?: Record<string, number>): Promise<void>;
   clearAll(): Promise<void>;
 }
 
@@ -305,10 +326,10 @@ export function createSession(): Session {
       if (active.profile.id === id || !rest.length) { pending = 0; adopt(list.get(next.profile.id)!); }
       changed();
     },
-    async replaceAll(aggs, activeId, scope) {
+    async replaceAll(aggs, activeId, scope, expect) {
       await s.ready;
       await settled('This profile has unsaved changes; retry saving or export before restoring');
-      const written = state === 'session-only' ? aggs : await store.replace(aggs, activeId, scope === 'all' ? 'all' : []);
+      const written = state === 'session-only' ? aggs : await store.replace(aggs, activeId, scope === 'all' ? 'all' : [], expect);
       if (scope === 'all') list.clear();
       for (const a of written) list.set(a.profile.id, a);
       adopt(list.get(activeId)!);

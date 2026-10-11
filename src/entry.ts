@@ -46,6 +46,7 @@ interface Instance {
 
   const close = () => {
     rt.inert = true; // later wrappers that still delegate to us now reach native behavior
+    rt.capturing = false;
     rt.settleAll(); // synthetic delays deliver now; owned body reads cancel
     if (window.fetch === awFetch) window.fetch = nativeFetch;
     for (const k of Object.keys(awXhr) as (keyof typeof awXhr)[]) {
@@ -55,7 +56,7 @@ interface Instance {
     delete w[KEY];
   };
 
-  const panel = mountPanel(rt, { version: __VERSION__, session, fetchers: { direct: nativeFetch, rules: awFetch }, onClose: close });
+  const panel = mountPanel(rt, { version: __VERSION__, session, fetchers: { direct: nativeFetch, rules: ((i, init) => rt.asTester(() => awFetch(i, init))) as typeof fetch }, onClose: close });
   const instance: Instance = {
     version: __VERSION__,
     relaunch(version) {

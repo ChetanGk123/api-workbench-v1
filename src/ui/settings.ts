@@ -1,20 +1,13 @@
 // Settings: storage state, profiles, body-check limit, export/restore, schema 1 migration and Clear
 // local data. Every action is a session command that validates and reports the stored outcome.
-import { exportEnvelope, readImport, type ImportRead } from '../data/backup';
-import { migrateV1 } from '../data/migrate';
-import { BOUNDS, copyAggregate, type Aggregate, type Diag } from '../data/schema';
-import { readV1 } from '../data/store';
+import { exportEnvelope } from '../data/backup';
+import { BOUNDS, type Aggregate } from '../data/schema';
 import { h, icon } from './dom';
-import { btn, checkbox, download, field, heading, input, section, textarea, tile, type Built, type Kit } from './kit';
-
-type Review = { source: string; read: ImportRead } | { source: string; errors: Diag[] };
+import { btn, checkbox, download, field, heading, input, section, tile, type Built, type Kit } from './kit';
 
 export function createSettingsUi(kit: Kit, o: { version: string; onProfileChange(): void; clearPreferences(): void }) {
   const s = kit.session;
   let sensitive = false;
-  let pasted = '';
-  let review: Review | null = null;
-  let v1State = '';
 
   const fileName = (what: string) => `api-workbench-${what}-${new Date().toISOString().slice(0, 10)}.json`;
   const fail = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -32,7 +25,6 @@ export function createSettingsUi(kit: Kit, o: { version: string; onProfileChange
     const storage = h('div', { class: 'aw-col aw-gap6' });
     const profiles = h('div', { class: 'aw-col aw-gap8' });
     const exportPrev = h('p', { class: 'aw-hint aw-wrap', id: 'aw-export-preview' });
-    const reviewEl = h('div', { class: 'aw-col aw-gap8', 'aria-live': 'polite' });
     let sig = '';
     let profSig = '';
 
@@ -102,61 +94,6 @@ export function createSettingsUi(kit: Kit, o: { version: string; onProfileChange
         : redacted.length ? `Redacted by default (re-entry needed after import): ${redacted.join('; ')}.` : 'No sensitive header values found to redact. Exports contain definitions and source references, never current tokens or keys.';
     }
 
-    function drawReview() {
-      if (!review) return reviewEl.replaceChildren();
-      if ('errors' in review) {
-        return reviewEl.replaceChildren(h('div', { class: 'aw-alert aw-col aw-gap4', id: 'aw-review' }, h('strong', {}, `${review.source}: nothing can be imported`),
-          ...review.errors.slice(0, 12).map((d) => h('div', { class: 'aw-wrap' }, d.path ? `${d.path}: ${d.message}` : d.message)),
-          review.errors.length > 12 ? h('div', {}, `…and ${review.errors.length - 12} more`) : ''));
-      }
-      const r = review.read;
-      const existing = new Map(s.all().map((a) => [a.profile.id, a]));
-      const lines = r.aggs.map((a) => `${a.profile.name}: ${a.endpoints.length} endpoints, ${a.plans.length} plans${a.legacyRules.length ? `, ${a.legacyRules.length} saved rules (kept as data)` : ''}${existing.has(a.profile.id) ? ' · already stored' : ''}`);
-      const actions: Node[] = [];
-      if (r.kind === 'backup') {
-        const removed = s.all().filter((a) => !r.aggs.some((b) => b.profile.id === a.profile.id)).map((a) => a.profile.name);
-        actions.push(h('p', { class: 'aw-hint aw-wrap' }, `Restore replaces every stored profile.${removed.length ? ` Removed: ${removed.join(', ')}.` : ''} Export a backup first if you may need the current data.`),
-          btn('Replace all profiles with this backup', () => commit('all'), 'aw-btn aw-dst aw-sm'));
-      } else {
-        actions.push(btn(`Add ${r.aggs.length} profile${r.aggs.length > 1 ? 's' : ''}`, () => commit('add'), 'aw-btn aw-pri aw-sm'),
-          h('p', { class: 'aw-hint aw-wrap' }, 'Profiles whose ID or name is already stored are added as renamed copies; nothing existing is overwritten.'));
-      }
-      reviewEl.replaceChildren(h('div', { class: 'aw-card aw-cp aw-col aw-gap6', id: 'aw-review' },
-        h('strong', {}, `${review.source}: ${r.kind === 'backup' ? 'whole backup' : r.kind === 'schema1' ? 'schema 1 data (migrated preview)' : 'profile export'}`),
-        ...lines.map((t) => h('div', { class: 'aw-xs aw-mono aw-wrap' }, t)),
-        ...r.notes.map((t) => h('div', { class: 'aw-xs aw-mu aw-wrap' }, t)),
-        ...actions, btn('Discard review', () => { review = null; drawReview(); }, 'aw-btn aw-gh aw-sm')));
-    }
-
-    async function commit(scope: 'all' | 'add') {
-      if (!review || 'errors' in review) return;
-      const r = review.read;
-      let aggs = r.aggs;
-      let activeId = r.activeId;
-      if (scope === 'add') {
-        const ids = new Set(s.all().map((a) => a.profile.id));
-        const names = new Set(s.all().map((a) => a.profile.name.toLowerCase()));
-        aggs = aggs.map((a) => {
-          if (!ids.has(a.profile.id) && !names.has(a.profile.name.toLowerCase())) { names.add(a.profile.name.toLowerCase()); return a; }
-          let name = `${a.profile.name} (imported)`;
-          for (let n = 2; names.has(name.toLowerCase()); n++) name = `${a.profile.name} (imported ${n})`;
-          names.add(name.toLowerCase());
-          return copyAggregate(a, name);
-        });
-        activeId = s.agg().profile.id;
-      } else {
-        o.onProfileChange();
-      }
-      const ok = await guarded(scope === 'all' ? 'Restore' : 'Import', () => s.replaceAll(aggs, activeId, scope));
-      if (!ok) return;
-      kit.announce(scope === 'all'
-        ? `Restored ${aggs.length} profile(s); active profile ${s.agg().profile.name}.`
-        : `Added ${aggs.map((a) => a.profile.name).join(', ')} · ${aggs.reduce((n, a) => n + a.endpoints.length, 0)} endpoints. Switch to it under Profiles.`);
-      review = null;
-      drawReview();
-      refresh();
-    }
-
     async function switchTo(id: string) {
       if (id === s.agg().profile.id) return kit.announce('That profile is already active.');
       o.onProfileChange();
@@ -199,19 +136,7 @@ export function createSettingsUi(kit: Kit, o: { version: string; onProfileChange
       kit.announce(`Exported ${kind === 'profile' ? `profile ${s.agg().profile.name}` : `${aggs.length} profiles`}${sensitive ? ' including sensitive values' : redacted.length ? ` with ${redacted.length} value(s) redacted` : ''}.`);
     }
 
-    const fileIn = h('input', { type: 'file', accept: '.json,application/json', class: 'aw-xs', id: 'aw-import-file', 'aria-label': 'Choose an export or backup file' });
-    fileIn.addEventListener('change', async () => {
-      const f = fileIn.files?.[0];
-      if (!f) return;
-      if (f.size > 10 * 1024 * 1024) { review = { source: f.name, errors: [{ path: '', message: 'File exceeds 10 MiB' }] }; return drawReview(); }
-      const r = readImport(await f.text());
-      review = r.ok ? { source: f.name, read: r.value } : { source: f.name, errors: r.errors };
-      fileIn.value = '';
-      drawReview();
-    });
-
     refresh();
-    drawReview();
     return {
       nodes: [
         h('div', { class: 'aw-row aw-gap10' }, tile('settings'), heading('Settings')),
@@ -222,28 +147,8 @@ export function createSettingsUi(kit: Kit, o: { version: string; onProfileChange
           exportPrev,
           h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' }, btn('Export active profile', () => exportNow('profile')), btn('Export all profiles (backup)', () => exportNow('backup')))),
         section('Import or restore',
-          h('p', { class: 'aw-hint aw-wrap' }, 'Accepts a profile export, a whole backup, or schema 1 JSON. Nothing changes until you confirm the review.'),
-          fileIn,
-          field('Or paste JSON', textarea(pasted, (v) => { pasted = v; }, { id: 'aw-import-paste', rows: 4 })),
-          h('div', { class: 'aw-row' }, btn('Review pasted JSON', () => {
-            const r = readImport(pasted);
-            review = r.ok ? { source: 'Pasted JSON', read: r.value } : { source: 'Pasted JSON', errors: r.errors };
-            drawReview();
-          })),
-          reviewEl),
-        section('Schema 1 data',
-          h('p', { class: 'aw-hint aw-wrap', id: 'aw-v1-state' }, v1State || 'Profiles saved by the previous version on this site can be migrated. The old database is only read and stays unchanged.'),
-          h('div', { class: 'aw-row' }, btn('Look for schema 1 data', async () => {
-            const raw = await readV1(kit.rt.origin);
-            const el = kit.root.getElementById('aw-v1-state');
-            if (!raw) { v1State = 'No schema 1 data is stored for this site.'; if (el) el.textContent = v1State; return; }
-            const m = migrateV1(raw);
-            v1State = 'Schema 1 data found. Review the migrated profiles below; the old database is left as it is.';
-            if (el) el.textContent = v1State;
-            review = m.ok ? { source: 'Schema 1 database', read: { kind: 'schema1', aggs: m.value.aggregates, activeId: m.value.activeId, notes: m.value.notes } } : { source: 'Schema 1 database', errors: m.errors };
-            drawReview();
-            kit.root.getElementById('aw-review')?.scrollIntoView({ block: 'nearest' });
-          }))),
+          h('p', { class: 'aw-hint aw-wrap' }, 'Profile exports, whole backups, schema 1 data and HAR files are reviewed and imported under Import. Nothing changes until you confirm the review.'),
+          h('div', { class: 'aw-row' }, btn([icon('import', 'aw-i aw-i14'), 'Open Import'], () => kit.go('import')))),
         section('Clear local data',
           h('p', { class: 'aw-hint aw-wrap' }, 'Deletes this version’s profiles for this site and the panel position, then starts an empty Default profile.'),
           h('div', { class: 'aw-row' }, btn([icon('trash', 'aw-i aw-i14'), 'Clear local data…'], clearAll, 'aw-btn aw-dst aw-sm'))),

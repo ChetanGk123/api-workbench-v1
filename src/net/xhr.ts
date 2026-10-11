@@ -1,6 +1,8 @@
 // XHR adapter. Instruments XMLHttpRequest.prototype so native objects, constructor identity and
 // typed responses are kept. Routing is decided at open(): the native object opens the destination
 // directly, so responseType/upload/timeout/events all stay native. Mocks use an explicit state machine.
+import { utf8Bytes } from '../data/schema';
+import { CAP, cleanHeaders, headerLines, newCapture, redactText, requestBody, sensitiveName, type ResBody } from './capture';
 import { BODYLESS_STATUS, planRequest, xhrTransformSkip, type Plan } from './plan';
 import type { ReqRecord, Runtime } from './runtime';
 
@@ -18,6 +20,8 @@ interface XState {
   plan: Plan;
   sync: boolean;
   rec?: ReqRecord;
+  /** Headers the page set, kept for a recorder capture. */
+  headers: [string, string][];
   synthetic?: Synthetic;
   pendingAuthNote?: boolean;
 }
@@ -65,7 +69,7 @@ export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
     const sync = args.length >= 3 && !async;
     const m = String(method).toUpperCase();
     const plan = planRequest(rt.config(), rt.origin, { transport: 'xhr', method: m, url: u, sync });
-    state.set(this, { method: m, url: u, plan, sync });
+    state.set(this, { method: m, url: u, plan, sync, headers: [] });
     if (plan.routeTo) {
       const routed = [...args] as unknown[];
       routed[1] = plan.routeTo.href;
@@ -81,7 +85,8 @@ export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
       st.rec ? rt.note(st.rec, 'Authorization removed: destination is a different origin') : (st.pendingAuthNote = true);
       return;
     }
-    return n.setRequestHeader.call(this, name, value);
+    n.setRequestHeader.call(this, name, value);
+    if (st && st.headers.length < 200) st.headers.push([String(name), String(value)]);
   } as Proto['setRequestHeader'];
 
   const send = function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
@@ -93,6 +98,7 @@ export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
     st.rec = rec;
     rec.responseType = this.responseType || 'text';
     if (st.pendingAuthNote) rt.note(rec, 'Authorization removed: destination is a different origin');
+    if (rt.capturing) captureSend(this, st, rec, body);
     if (st.plan.transform) rt.op(rec, 'intercept', 'skipped', xhrTransformSkip(this.responseType));
 
     if (st.plan.provider === 'mock') {
@@ -127,6 +133,34 @@ export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
     }
     return n.abort.call(this);
   } as Proto['abort'];
+
+  function captureSend(xhr: XMLHttpRequest, st: XState, rec: ReqRecord, body: unknown) {
+    const c = newCapture(rec, st.method, st.url);
+    rec.capture = c;
+    c.headers = cleanHeaders(st.headers, c);
+    c.credentials = xhr.withCredentials ? 'include' : 'same-origin';
+    const ct = st.headers.find(([k]) => k.toLowerCase() === 'content-type')?.[1] ?? '';
+    c.body = requestBody(body, ct, c);
+    xhr.addEventListener('loadend', () => {
+      c.status = xhr.status || undefined;
+      c.synthetic = !!st.synthetic;
+      c.resHeaders = headerLines(xhr.getAllResponseHeaders()).filter(([k]) => !sensitiveName(k));
+      const t = xhr.responseType;
+      const rct = xhr.getResponseHeader('content-type') ?? '';
+      const cut = (text: string): ResBody => {
+        if (utf8Bytes(text) <= CAP.responseBytes) return { text: redactText(text, rct, c, 'Response body'), truncated: false };
+        return { text: redactText(new TextDecoder().decode(new TextEncoder().encode(text).subarray(0, CAP.responseBytes)), rct, c, 'Response body'), truncated: true };
+      };
+      if (!xhr.status) { /* no response */ }
+      else if (t === '' || t === 'text') c.resBody = cut(xhr.responseText);
+      else if (t === 'json') {
+        c.resBody = xhr.response == null ? { omitted: 'responseType json: the body did not parse' } : cut(JSON.stringify(xhr.response));
+        c.notes.push('Response JSON was re-serialized from responseType json; spacing may differ');
+      } else c.resBody = { omitted: `XHR ${t} response is not captured` };
+      c.ms = rec.elapsedMs;
+      queueMicrotask(() => rt.captured(rec)); // after finish() has set the outcome
+    }, { once: true });
+  }
 
   function deliverMock(xhr: XMLHttpRequest, st: XState, rec: ReqRecord, _body: unknown) {
     const m = st.plan.mock!;

@@ -1,4 +1,6 @@
 // Fetch adapter. Unmatched calls are delegated with the caller's exact arguments and Response.
+import type { Credentials } from '../data/schema';
+import { CAP, cleanHeaders, newCapture, readPrefix, redactText, requestBody, sensitiveName, textualType } from './capture';
 import { BODYLESS_STATUS, LIMITS, planRequest, type Plan } from './plan';
 import { readBounded, type ReqRecord, type Runtime } from './runtime';
 
@@ -22,24 +24,81 @@ export function createFetch(nativeFetch: typeof fetch, rt: Runtime): typeof fetc
 
     const plan = planRequest(rt.config(), rt.origin, { transport: 'fetch', method, url, sync: false });
     const rec = rt.start('fetch', method, url, plan);
+    const reqBody = rt.capturing ? captureRequest(input, init, url, method, rec, rt) : undefined;
 
     if (!plan.matched) {
       const p = nativeFetch.apply(this, args);
-      observe(p, rec, rt);
+      observe(p, rec, rt, reqBody);
       return p;
     }
     const signal = init?.signal !== undefined ? init.signal : input instanceof Request ? input.signal : undefined;
     const p = plan.provider === 'mock' ? mockResponse(plan, method, signal, rec, rt) : networkResponse(nativeFetch, this, input, init, plan, rec, rt);
-    observe(p, rec, rt);
+    observe(p, rec, rt, reqBody);
     return p;
   };
 }
 
-function observe(p: Promise<Response>, rec: ReqRecord, rt: Runtime): void {
+function observe(p: Promise<Response>, rec: ReqRecord, rt: Runtime, reqBody?: Promise<void>): void {
   p.then(
-    (r) => rt.finish(rec, 'ok', r.status),
-    (e: unknown) => rt.finish(rec, e instanceof DOMException && e.name === 'AbortError' ? 'aborted' : e instanceof DOMException && e.name === 'TimeoutError' ? 'timeout' : 'error'),
+    (r) => {
+      rt.finish(rec, 'ok', r.status);
+      if (rec.capture) captureResponse(r, rec, rt, reqBody);
+    },
+    (e: unknown) => {
+      rt.finish(rec, e instanceof DOMException && e.name === 'AbortError' ? 'aborted' : e instanceof DOMException && e.name === 'TimeoutError' ? 'timeout' : 'error');
+      if (rec.capture) void Promise.resolve(reqBody).then(() => rt.captured(rec));
+    },
   );
+}
+
+/** Request side of a capture. Returns a promise only when a prebuilt Request body has to be read from a clone. */
+function captureRequest(input: RequestInfo | URL, init: RequestInit | undefined, url: URL, method: string, rec: ReqRecord, rt: Runtime): Promise<void> {
+  const c = newCapture(rec, method, url);
+  rec.capture = c;
+  const req = input instanceof Request ? input : null;
+  let headers: Headers;
+  try { headers = new Headers(init?.headers !== undefined ? init.headers : req?.headers); } catch { headers = new Headers(); c.notes.push('Request headers were invalid; the browser rejected them'); }
+  c.headers = cleanHeaders(headers, c);
+  c.credentials = (init?.credentials ?? req?.credentials ?? 'same-origin') as Credentials;
+  const ct = headers.get('content-type') ?? '';
+  if (init?.body !== undefined) c.body = requestBody(init.body, ct, c);
+  else if (req?.body && !req.bodyUsed) {
+    if (!textualType(ct)) c.body = { kind: 'omitted', reason: `Request body of type "${ct || 'unknown'}" is not captured` };
+    else {
+      return readPrefix(req.clone().body!, CAP.requestBytes, CAP.responseDeadlineMs, rt.own).then((b) => {
+        c.body = 'omitted' in b ? { kind: 'omitted', reason: b.omitted } : b.truncated ? { kind: 'omitted', reason: `Request body over ${CAP.requestBytes / 1024} KiB was not captured` } : requestBody(b.text, ct, c);
+      });
+    }
+  }
+  return Promise.resolve();
+}
+
+async function captureResponse(res: Response, rec: ReqRecord, rt: Runtime, reqBody?: Promise<void>): Promise<void> {
+  const c = rec.capture!;
+  c.status = res.status;
+  c.synthetic = rec.provider === 'mock' && rec.ops.some((o) => o.module === 'mock' && o.state === 'applied');
+  c.resHeaders = [...res.headers].filter(([k]) => !sensitiveName(k));
+  const ct = res.headers.get('content-type') ?? '';
+  if (res.type === 'opaque' || res.type === 'opaqueredirect') c.resBody = { omitted: 'Opaque response: the browser hides its body' };
+  else if (!res.body) c.resBody = { text: '', truncated: false };
+  else if (!textualType(ct)) c.resBody = { omitted: `Content type "${ct || 'unknown'}" is not text; body not captured` };
+  else {
+    const release = rt.acquireBodySlot();
+    if (!release) c.resBody = { omitted: `${LIMITS.bodyConcurrency} body reads already running; preview skipped` };
+    else {
+      try {
+        const b = await readPrefix(res.clone().body!, CAP.responseBytes, CAP.responseDeadlineMs, rt.own);
+        c.resBody = 'text' in b ? { text: redactText(b.text, ct, c, 'Response body'), truncated: b.truncated } : b;
+      } catch {
+        c.resBody = { omitted: 'Response body was already used' };
+      } finally {
+        release();
+      }
+    }
+  }
+  await reqBody;
+  c.ms = rec.elapsedMs;
+  rt.captured(rec);
 }
 
 async function mockResponse(plan: Plan, method: string, signal: AbortSignal | null | undefined, rec: ReqRecord, rt: Runtime): Promise<Response> {

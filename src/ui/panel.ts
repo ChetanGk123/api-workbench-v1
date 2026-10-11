@@ -8,7 +8,9 @@ import {
 import type { ReqRecord, Runtime } from '../net/runtime';
 import type { Session } from '../data/store';
 import { h, icon, type IconName } from './dom';
+import { createRecorder } from '../data/recorder';
 import { createEndpointsUi } from './endpoints';
+import { createImportUi } from './importer';
 import { clampPos, GEOMETRY_KEY, MIN_SIZE, readGeometry, writeGeometry, type Pos } from './geometry';
 import { checkbox, countBadge, heading, methodBadge, NAME, tile, type Built, type Form, type Kit, type Ret, type Screen } from './kit';
 import { createSettingsUi } from './settings';
@@ -47,7 +49,6 @@ const TABS: { id: Screen; label: string; icon: IconName }[] = [
 ];
 const LATER: Partial<Record<Screen, { title: string; icon: IconName; text: string }>> = {
   chaos: { title: 'Chaos Engineering', icon: 'flame', text: 'Latency, faults and replay rules are not in this build. They arrive with the rule modules (R4).' },
-  import: { title: 'Import', icon: 'import', text: 'Recorder, native and HAR import arrive in R3; Swagger/OpenAPI/Postman/cURL/fetch in R7. Profile exports and backups are imported under Settings.' },
 };
 const SHOWN = 50;
 const STEP = 16;
@@ -331,6 +332,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       : screen === 'test' ? testUi.screen()
       : screen === 'endpoints' ? endpointsUi.screen()
       : screen === 'settings' ? settingsUi.screen()
+      : screen === 'import' ? importUi.screen()
       : screen === 'mock' || screen === 'intercept' ? moduleScreen(screen)
       : screen === 'route' ? routeScreen()
       : screen === 'detail' ? detailScreen()
@@ -352,13 +354,15 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       isOn ? btn.setAttribute('aria-current', 'page') : btn.removeAttribute('aria-current');
       dot.hidden = !act.includes(id as Module);
     }
-    indicators.replaceChildren(...act.map((m) => h('span', { class: 'aw-tbm', title: `${MOD[m].tab} module active` }, icon(MOD[m].icon, 'aw-i aw-i14'), h('span', { class: 'aw-dot aw-g' }))));
+    const recording = recorder.recording();
+    indicators.replaceChildren(...act.map((m) => h('span', { class: 'aw-tbm', title: `${MOD[m].tab} module active` }, icon(MOD[m].icon, 'aw-i aw-i14'), h('span', { class: 'aw-dot aw-g' }))),
+      ...(recording ? [h('span', { class: 'aw-bd aw-am', id: 'aw-rec-ind', title: 'Recorder is capturing page calls' }, 'REC')] : []));
     launchInds.replaceChildren(...act.map((m) => {
       const b = h('button', { class: 'aw-btn aw-gh aw-ic aw-sm aw-ind', type: 'button', 'aria-label': `${MOD[m].tab} module active — open ${MOD[m].tab}` }, icon(MOD[m].icon), h('span', { class: 'aw-dot aw-g' }));
       b.addEventListener('click', () => { restore(); go(m); });
       return b;
     }));
-    launcherState.textContent = act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active';
+    launcherState.textContent = [act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active', recording ? 'Recording' : ''].filter(Boolean).join(' · ');
     const name = session.agg().profile.name;
     const prof = header.querySelector('#aw-profile-name')!;
     prof.textContent = name;
@@ -399,8 +403,10 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       live?.();
     });
   };
+  const recorder = createRecorder(rt);
   const unsubscribe = rt.subscribe(schedule);
   const unsubSession = session.subscribe(schedule);
+  const unsubRecorder = recorder.subscribe(schedule);
 
   // ---------- shared pieces
   const backButton = (to: Screen, onClick: () => void) => {
@@ -558,6 +564,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   };
   const endpointsUi = createEndpointsUi(kit);
   const testUi = createTestUi(kit);
+  const importUi = createImportUi(kit, recorder, { version: opts.version, onProfileChange: () => testUi.stop() });
   const settingsUi = createSettingsUi(kit, {
     version: opts.version,
     onProfileChange: () => testUi.stop(),
@@ -949,6 +956,8 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       testUi.stop();
       unsubscribe();
       unsubSession();
+      unsubRecorder();
+      recorder.dispose();
       ro.disconnect();
       life.abort();
       if (dialog.open) dialog.close();

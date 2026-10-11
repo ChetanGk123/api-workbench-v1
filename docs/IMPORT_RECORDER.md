@@ -1,6 +1,6 @@
 # Import and recorder contract
 
-Status: proposed rebuild behavior. All seven advertised external format/version paths and the recorder source are required. Source limits and recovery budgets are owned by [DATA](DATA.md).
+Status: rebuild behavior. R3 implements the recorder, the shared review/commit flow and the native and HAR adapters ([R3 evidence](R3_REPORT.md)); the other five external formats are detected and named but arrive in R7. All seven advertised external format/version paths and the recorder source are required. Source limits and recovery budgets are owned by [DATA](DATA.md).
 
 ## One conversion/review flow
 

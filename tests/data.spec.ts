@@ -372,21 +372,28 @@ test.describe('storage, profiles, backup and migration (G21)', () => {
     expect(text).not.toContain('live-token');
     expect(JSON.parse(text)).toMatchObject({ format: 'api-workbench', kind: 'backup', schema: 2, redacted: true });
 
-    await page.locator('#aw-import-paste').fill(text.replace('"schema": 2', '"schema": 3'));
-    await button(page, 'Review pasted JSON').click();
-    await expect(page.locator('#aw-review')).toContainText('newer than this build supports');
+    await button(page, 'Open Import').click();
+    await page.locator('#aw-imp-text').fill(text.replace('"schema": 2', '"schema": 3'));
+    await button(page, 'Apply').click();
+    await expect(page.locator('#aw-imp-errors')).toContainText('newer than this build supports');
 
+    await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
     await button(page, 'Clear local data…').click();
     await page.getByRole('dialog').getByRole('button', { name: 'Clear local data' }).click();
     await expect(page.locator('#aw-prof-select option')).toHaveText(['Default · 0 endpoints']);
 
-    await page.locator('#aw-import-file').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(text) });
-    await expect(page.locator('#aw-review')).toContainText('Default: 1 endpoints, 0 plans');
-    await button(page, 'Replace all profiles with this backup').click();
+    await button(page, 'Open Import').click();
+    await page.locator('#aw-imp-file').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(text) });
+    await expect(page.getByRole('dialog')).toContainText('Replace the edited draft with backup.json?');
+    await button(page, 'Replace draft').click();
+    await expect(page.locator('#aw-imp-review')).toContainText('Default: 1 endpoints, 0 plans');
+    await button(page, 'Replace all profiles').click();
+    await expect(page.locator('#aw-imp-saved')).toContainText('Restored 1 profile(s)');
+    await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
     await expect(page.locator('#aw-prof-select option')).toHaveText(['Default · 1 endpoint']);
     await openEndpoints(page);
     await page.getByRole('button', { name: 'Run Secret once' }).click();
-    await expect(page.locator('#aw-once-blocked')).toContainText('Header Authorization: value was redacted on export; enter it again');
+    await expect(page.locator('#aw-once-blocked')).toContainText('Header Authorization: value was redacted on export or capture; enter it again');
   });
 
   test('schema 1 database is migrated after review and left untouched', async ({ page }) => {
@@ -401,12 +408,12 @@ test.describe('storage, profiles, backup and migration (G21)', () => {
       r.onsuccess = () => { const t = r.result.transaction('configs', 'readwrite'); t.objectStore('configs').put(cfg, origin); t.oncomplete = () => { r.result.close(); resolve(); }; };
     }), [v1, A] as const);
     await launch(page);
-    await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Import', exact: true }).first().click();
     await button(page, 'Look for schema 1 data').click();
-    await expect(page.locator('#aw-review')).toContainText('wires: 1 endpoints, 0 plans');
-    await button(page, 'Add 1 profile').click();
-    await page.locator('#aw-prof-select').selectOption({ label: 'wires · 1 endpoint' });
-    await button(page, 'Switch to the selected profile').click();
+    await expect(page.locator('#aw-imp-review')).toContainText('wires: 1 endpoints, 0 plans');
+    await button(page, 'Import as new profile').click();
+    await expect(page.locator('#aw-imp-saved')).toContainText('Active profile: wires');
+    await expect(page.locator('#aw-profile-name')).toHaveText('wires');
     await openEndpoints(page);
     await runOnce(page, 'Old echo');
     expect(await echo(page)).toMatchObject({ bodyText: '{"a" : 1}', headers: { 'x-test': 'from-v1' } });

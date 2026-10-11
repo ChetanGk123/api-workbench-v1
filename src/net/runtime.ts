@@ -1,4 +1,5 @@
 // Runtime state shared by the adapters: config pointer, bounded records, owned waits and body slots.
+import type { Capture } from './capture';
 import { LIMITS, type Config, type Op, type Plan, type Transport } from './plan';
 
 export type Outcome = 'pending' | 'ok' | 'error' | 'aborted' | 'timeout';
@@ -13,6 +14,10 @@ export interface ReqRecord {
   readonly revision: number;
   readonly provider: Plan['provider'];
   readonly startedAt: number;
+  /** tester = sent by Test → Once with Apply rules; page = everything else. */
+  readonly source: 'page' | 'tester';
+  /** Present only when the recorder was on at intake. Redacted as it is built. */
+  capture?: Capture;
   finalUrl?: string;
   responseType?: string;
   /** Operations with `at`: ms after start when the state last changed (absent = decided at intake). */
@@ -26,6 +31,14 @@ export interface ReqRecord {
 export interface Runtime {
   readonly origin: string;
   inert: boolean;
+  /** Recorder on: adapters build a capture for each new call. */
+  capturing: boolean;
+  /** Called once per captured call when its capture is complete (response preview read or skipped). */
+  onCapture: ((rec: ReqRecord) => void) | null;
+  /** Run `fn` with calls it starts synchronously labelled as tester traffic. */
+  asTester<T>(fn: () => T): T;
+  /** Mark a record's capture complete and hand it to the recorder. */
+  captured(rec: ReqRecord): void;
   config(): Config;
   setConfig(next: Config): void;
   start(transport: Transport, method: string, url: URL, plan: Plan): ReqRecord;
@@ -52,11 +65,22 @@ export function createRuntime(origin: string, initial: Config): Runtime {
   const subs = new Set<() => void>();
   const pending = new Set<() => void>();
   let bodySlots = 0;
+  let tester = false;
   const changed = () => subs.forEach((fn) => fn());
 
   const rt: Runtime = {
     origin,
     inert: false,
+    capturing: false,
+    onCapture: null,
+    asTester(fn) {
+      tester = true;
+      try { return fn(); } finally { tester = false; }
+    },
+    captured(rec) {
+      if (rec.capture && rec.capture.outcome === 'pending') rec.capture.outcome = rec.outcome;
+      rt.onCapture?.(rec);
+    },
     config: () => cfg,
     setConfig(next) {
       cfg = Object.freeze({ ...next, revision: cfg.revision + 1 });
@@ -72,6 +96,7 @@ export function createRuntime(origin: string, initial: Config): Runtime {
         revision: plan.revision,
         provider: plan.provider,
         startedAt: performance.now(),
+        source: tester ? 'tester' : 'page',
         ops: plan.ops.map((o) => ({ ...o })),
         outcome: 'pending',
         notes: [],

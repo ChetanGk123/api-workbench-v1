@@ -35,7 +35,8 @@ const SOURCE = /^\$(cookie|localStorage|sessionStorage|meta)\(\s*"([^"\\]{1,256}
 export function resolve(text: string, where: string, src: Sources, blocked: string[], secret: { hit: boolean }): string {
   return text.replace(/\{\{([^}]*)\}\}/g, (_m, inner: string) => {
     const expr = inner.trim();
-    if (expr === '$redacted') { blocked.push(`${where}: value was redacted on export; enter it again`); return ''; }
+    if (expr === '$redacted') { blocked.push(`${where}: value was redacted on export or capture; enter it again`); return ''; }
+    if (expr === '$missing') { blocked.push(`${where}: not captured when recorded or imported; enter it before sending`); return ''; }
     const m = SOURCE.exec(expr);
     if (!m) { blocked.push(`${where}: {{${expr}}} needs the expression engine (not in this build)`); return ''; }
     let v: string | undefined;

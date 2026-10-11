@@ -12,7 +12,7 @@ Must not install another hook, capture earlier/whole-tab/worker traffic falsely,
 
 ## Task S06.1 — Wire bounded capture and lifecycle
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** observer/reader ownership and recovery limits. **Status:** NOT STARTED. **Depends on:** shared request records/body policy; S00.3.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** observer/reader ownership and recovery limits. **Status:** IMPLEMENTED; verification incomplete ([R3 evidence](../R3_REPORT.md)); the 1 MiB envelope cap and recovery-write refusal are NOT RUN in a browser. **Depends on:** shared request records/body policy; S00.3.
 
 1. Subscribe one recorder to eligible subsequent records; source-filter tester traffic under explicit setting.
 2. Render count/time/bytes without replacing edited candidate fields. Redact before display/persistence.
@@ -24,7 +24,7 @@ Must not install another hook, capture earlier/whole-tab/worker traffic falsely,
 
 ## Task S06.2 — Build review, grouping and candidate editing
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** dedupe can accidentally lose meaningful transaction variants. **Status:** NOT STARTED. **Depends on:** S06.1, S04 candidate drafts.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** dedupe can accidentally lose meaningful transaction variants. **Status:** IMPLEMENTED for the R3 scope; verification incomplete ([R3 evidence](../R3_REPORT.md)); in-review header/binding editing (item 3) is not built, edit after import. **Depends on:** S06.1, S04 candidate drafts.
 
 1. Group using explicit method/origin/path/query/body policy; display variants and allow keeping them separate.
 2. Join request/response by request ID; expose source records/samples and omission state.
@@ -36,7 +36,7 @@ Must not install another hook, capture earlier/whole-tab/worker traffic falsely,
 
 ## Task S06.3 — Promote selected candidates through shared commit
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** profile/draft preservation and transaction semantics. **Status:** NOT STARTED. **Depends on:** S06.2/S05.3.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** profile/draft preservation and transaction semantics. **Status:** IMPLEMENTED; verification incomplete ([R3 evidence](../R3_REPORT.md)). **Depends on:** S06.2/S05.3.
 
 1. Convert only selected editable candidates through common validators/conflict preview.
 2. Support current-profile add and new-profile-name preview; keep outgoing profile available.

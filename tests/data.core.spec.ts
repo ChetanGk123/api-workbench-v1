@@ -186,7 +186,7 @@ test.describe('export redaction and copies', () => {
     expect(r.profile.globalHeaders[0]!.value).toBe('{{$cookie("XSRF-TOKEN")}}');
     expect(JSON.stringify(r)).not.toContain('live-secret');
     const p = prepare(r, r.endpoints[0]!, PAGE, { ...none, cookie: () => 'c' }, new Map());
-    expect(p.blocked).toEqual(['Header Authorization: value was redacted on export; enter it again']);
+    expect(p.blocked).toEqual(['Header Authorization: value was redacted on export or capture; enter it again']);
   });
 
   test('Save copy remaps every ID and reference once', () => {

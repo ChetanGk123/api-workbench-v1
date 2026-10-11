@@ -12,7 +12,7 @@ Do not execute snippets, send imported requests, read remote refs/local file pat
 
 ## Task S05.1 — Implement source draft and parser lifecycle
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** stale async input/file/parse results must not overwrite drafts. **Status:** NOT STARTED. **Depends on:** S00.2, bounded parser entry.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** stale async input/file/parse results must not overwrite drafts. **Status:** IMPLEMENTED for the R3 scope (native and HAR adapters); verification incomplete ([R3 evidence](../R3_REPORT.md)); Swagger/OpenAPI/Postman/cURL/fetch adapters are R7. **Depends on:** S00.2, bounded parser entry.
 
 1. Keep source text/file provenance/override in view state; use monotonic draft generation to reject stale results.
 2. Inspect bytes/content; reject oversize before uncontrolled allocation. File cancel/failure preserves old draft; replacement prompts when edited.
@@ -24,7 +24,7 @@ Do not execute snippets, send imported requests, read remote refs/local file pat
 
 ## Task S05.2 — Implement candidates, diagnostics and conflicts
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** fidelity and identity changes affect saved requests. **Status:** NOT STARTED. **Depends on:** S05.1, format adapters/validators, S04 candidate editor.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** fidelity and identity changes affect saved requests. **Status:** IMPLEMENTED for the R3 scope (native and HAR adapters); verification incomplete ([R3 evidence](../R3_REPORT.md)); Swagger/OpenAPI/Postman/cURL/fetch adapters are R7. **Depends on:** S05.1, format adapters/validators, S04 candidate editor.
 
 1. Render stable candidate IDs with selection/name/resolved method+origin+path and source notes.
 2. Support missing parameter/binding/file/signing requirements, selectable media examples and redaction preview.
@@ -36,7 +36,7 @@ Do not execute snippets, send imported requests, read remote refs/local file pat
 
 ## Task S05.3 — Commit transactionally and prove every format
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** rollback, ID remapping and stale destination safety. **Status:** NOT STARTED. **Depends on:** S05.2, DATA transactions, every advertised adapter.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** rollback, ID remapping and stale destination safety. **Status:** IMPLEMENTED for the R3 scope (native and HAR adapters); verification incomplete ([R3 evidence](../R3_REPORT.md)); Swagger/OpenAPI/Postman/cURL/fetch adapters are R7. **Depends on:** S05.2, DATA transactions, every advertised adapter.
 
 1. Revalidate selection and base profile/revision before commit; stale destination rebuilds review.
 2. Apply ID/reference remapping as one aggregate; commit to durable stores before installing imported live config.
