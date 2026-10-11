@@ -1,9 +1,17 @@
 // XHR adapter. Instruments XMLHttpRequest.prototype so native objects, constructor identity and
-// typed responses are kept. Routing is decided at open(): the native object opens the destination
-// directly, so responseType/upload/timeout/events all stay native. Mocks use an explicit state machine.
-import { utf8Bytes } from '../data/schema';
+// typed responses are kept. Planning happens at send(), when headers and body are known.
+// - Route / request-header edits re-open the page's native object at the destination and replay its
+//   headers, so responseType/upload/progress/timeout stay native (listeners see OPENED once more).
+// - Response edits and real chaos run the request on an internal native XHR that Workbench owns; the
+//   page's object never sends and gets one event sequence with the final values, reusing the native
+//   typed response. (Chrome runs target listeners in registration order, so native events on the
+//   page's own object cannot be held back.)
+// - Mock and synthetic chaos use an explicit state/event machine and send nothing.
+import { utf8Bytes, type Pair, type Transform } from '../data/schema';
 import { CAP, cleanHeaders, headerLines, newCapture, redactText, requestBody, sensitiveName, type ResBody } from './capture';
-import { BODYLESS_STATUS, planRequest, xhrTransformSkip, type Plan } from './plan';
+import { jsonOrText, matchBody, statusText } from './fetch';
+import { applyPatch, hasBodyOps, hasHeaderOps, transformBody } from './patch';
+import { BODYLESS_STATUS, LIMITS, planRequest, type Plan } from './plan';
 import type { ReqRecord, Runtime } from './runtime';
 
 type Proto = typeof XMLHttpRequest.prototype;
@@ -17,13 +25,12 @@ export interface XhrNatives {
 interface XState {
   method: string;
   url: URL;
-  plan: Plan;
+  openArgs: unknown[];
   sync: boolean;
   rec?: ReqRecord;
-  /** Headers the page set, kept for a recorder capture. */
+  /** Headers the page set, in order. */
   headers: [string, string][];
   synthetic?: Synthetic;
-  pendingAuthNote?: boolean;
 }
 
 interface Synthetic {
@@ -33,24 +40,29 @@ interface Synthetic {
   headers: string;
   body: string;
   response: unknown;
+  url: string;
   done: boolean;
-  cancel(): void;
+  /** Internal native request in flight (held), aborted with the page's abort(). */
+  inner: XMLHttpRequest | null;
+  timers: ReturnType<typeof setTimeout>[];
+  release(): void;
 }
+
+/** A final reply to deliver: text for responseText; `response` for the typed value. */
+interface Reply { status: number; statusText: string; headers: Pair[]; text: string; response: unknown; url: string }
 
 const SHADOWED = ['readyState', 'status', 'statusText', 'response', 'responseText', 'responseURL', 'responseXML', 'getResponseHeader', 'getAllResponseHeaders'] as const;
-const STATUS_TEXT: Record<number, string> = { 200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content', 304: 'Not Modified', 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 409: 'Conflict', 422: 'Unprocessable Content', 429: 'Too Many Requests', 500: 'Internal Server Error', 502: 'Bad Gateway', 503: 'Service Unavailable', 504: 'Gateway Timeout' };
-
+const proto = XMLHttpRequest.prototype;
 export function captureXhr(): XhrNatives {
-  const p = XMLHttpRequest.prototype;
-  return { open: p.open, send: p.send, setRequestHeader: p.setRequestHeader, abort: p.abort };
+  return { open: proto.open, send: proto.send, setRequestHeader: proto.setRequestHeader, abort: proto.abort };
 }
 
-export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
+export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch): XhrNatives {
   const state = new WeakMap<XMLHttpRequest, XState>();
 
   function unshadow(xhr: XMLHttpRequest) {
-    const st = state.get(xhr);
-    st?.synthetic?.cancel();
+    const syn = state.get(xhr)?.synthetic;
+    if (syn) { syn.done = true; cancel(syn); }
     for (const k of SHADOWED) if (Object.prototype.hasOwnProperty.call(xhr, k)) delete (xhr as unknown as Record<string, unknown>)[k];
   }
 
@@ -66,26 +78,13 @@ export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
     } catch {
       return n.open.apply(this, args); // native throws the correct SyntaxError
     }
-    const sync = args.length >= 3 && !async;
-    const m = String(method).toUpperCase();
-    const plan = planRequest(rt.config(), rt.origin, { transport: 'xhr', method: m, url: u, sync });
-    state.set(this, { method: m, url: u, plan, sync, headers: [] });
-    if (plan.routeTo) {
-      const routed = [...args] as unknown[];
-      routed[1] = plan.routeTo.href;
-      if (routed.length < 3) routed[2] = true;
-      return (n.open as (...a: unknown[]) => void).apply(this, routed);
-    }
-    return n.open.apply(this, args);
+    n.open.apply(this, args);
+    state.set(this, { method: String(method).toUpperCase(), url: u, openArgs: args, sync: args.length >= 3 && !async, headers: [] });
   } as Proto['open'];
 
   const setRequestHeader = function (this: XMLHttpRequest, name: string, value: string) {
-    const st = state.get(this);
-    if (!rt.inert && st?.plan.dropAuthorization && String(name).toLowerCase() === 'authorization') {
-      st.rec ? rt.note(st.rec, 'Authorization removed: destination is a different origin') : (st.pendingAuthNote = true);
-      return;
-    }
     n.setRequestHeader.call(this, name, value);
+    const st = state.get(this);
     if (st && st.headers.length < 200) st.headers.push([String(name), String(value)]);
   } as Proto['setRequestHeader'];
 
@@ -94,45 +93,369 @@ export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
     const args = arguments as unknown as Parameters<Proto['send']>;
     const st = state.get(this);
     if (rt.inert || !st || this.readyState !== 1) return n.send.apply(this, args);
-    const rec = rt.start('xhr', st.method, st.url, st.plan);
+    const plan = planRequest(rt.config(), rt.states, rt.origin, { transport: 'xhr', method: st.method, url: st.url, headers: st.headers, body: matchBody(body), sync: st.sync });
+    const rec = rt.start('xhr', st.method, st.url, plan);
     st.rec = rec;
     rec.responseType = this.responseType || 'text';
-    if (st.pendingAuthNote) rt.note(rec, 'Authorization removed: destination is a different origin');
     if (rt.capturing) captureSend(this, st, rec, body);
-    if (st.plan.transform) rt.op(rec, 'intercept', 'skipped', xhrTransformSkip(this.responseType));
 
-    if (st.plan.provider === 'mock') {
-      if (this.responseType === 'document') {
-        rt.op(rec, 'mock', 'skipped', 'Synthetic document responses are not supported; original request sent');
-      } else {
-        deliverMock(this, st, rec, body);
-        return;
-      }
+    const synthetic = plan.provider !== 'network';
+    if (synthetic && this.responseType === 'document') {
+      const m = plan.provider === 'mock' ? 'mock' : 'chaos';
+      rt.op(rec, m, 'skipped', 'Synthetic document responses are not supported; original request sent');
+      return nativeSend(this, rec, args);
     }
-    if (st.plan.routeTo) rt.op(rec, 'route', 'applied', `Sent to ${st.plan.routeTo.origin}${st.plan.routeTo.pathname} (query preserved; native ${rec.responseType} response)`);
-    const xhr = this;
-    const onEnd = (e: Event) => rt.finish(rec, e.type === 'load' ? 'ok' : e.type === 'abort' ? 'aborted' : e.type === 'timeout' ? 'timeout' : 'error', xhr.status);
-    for (const t of ['load', 'error', 'abort', 'timeout']) this.addEventListener(t, onEnd, { once: true });
-    try {
-      return n.send.apply(this, args);
-    } catch (e) {
-      rt.finish(rec, 'error');
-      throw e;
-    }
+    if (plan.provider === 'mock') return deliverMock(this, st, plan, rec);
+    if (plan.provider === 'chaos') return deliverChaos(this, st, plan, rec);
+    if (!plan.matched) return nativeSend(this, rec, args);
+    return network(this, st, plan, rec, body);
   } as Proto['send'];
 
   const abort = function (this: XMLHttpRequest) {
-    const syn = state.get(this)?.synthetic;
+    const st = state.get(this);
+    const syn = st?.synthetic;
     if (!rt.inert && syn && !syn.done) {
-      syn.cancel();
+      cancel(syn);
+      syn.done = true; // before the native abort, whose (suppressed) loadend reports back synchronously
+      if (syn.inner) n.abort.call(syn.inner); // stop the internal request; the page sees only our abort
       terminal(this, syn, 'abort');
       syn.readyState = 0;
-      const rec = state.get(this)?.rec;
-      if (rec) rt.finish(rec, 'aborted');
+      if (st!.rec) rt.finish(st!.rec, 'aborted');
       return;
     }
     return n.abort.call(this);
   } as Proto['abort'];
+
+  function nativeSend(xhr: XMLHttpRequest, rec: ReqRecord, args: unknown[] | IArguments) {
+    const onEnd = (e: Event) => rt.finish(rec, e.type === 'load' ? 'ok' : e.type === 'abort' ? 'aborted' : e.type === 'timeout' ? 'timeout' : 'error', xhr.status);
+    for (const t of ['load', 'error', 'abort', 'timeout']) xhr.addEventListener(t, onEnd, { once: true });
+    try {
+      return (n.send as (...a: unknown[]) => void).apply(xhr, [...args]);
+    } catch (e) {
+      rt.finish(rec, 'error');
+      throw e;
+    }
+  }
+
+  // ---------- real traffic
+
+  function network(xhr: XMLHttpRequest, st: XState, plan: Plan, rec: ReqRecord, body: unknown) {
+    let sendBody = body;
+    const ic = plan.intercept?.request ? plan.intercept.rule.request : null;
+    const chaos = plan.chaos;
+    const hold = !!plan.intercept?.response || (!!chaos && chaos.fault.kind !== 'replay');
+    const target = plan.route?.to.href ?? st.url.href;
+
+    // Effective headers: route Authorization policy, then request edits (removal before set).
+    const removed = new Set(ic?.removeHeaders.map((x) => x.toLowerCase()));
+    const set = new Map(ic?.setHeaders.map(([k, v]) => [k.toLowerCase(), [k, v] as const]));
+    let droppedAuth = false;
+    const headers: [string, string][] = [];
+    for (const [k, v] of st.headers) {
+      const lk = k.toLowerCase();
+      if (plan.route?.dropAuthorization && lk === 'authorization') { droppedAuth = true; continue; }
+      if (removed.has(lk) || set.has(lk)) continue;
+      headers.push([k, v]);
+    }
+    for (const [k, v] of set.values()) headers.push([k, v]);
+    const cred = plan.route?.credentials;
+    const withCredentials = cred ? cred === 'include' : xhr.withCredentials;
+
+    if (plan.route) {
+      const did = [`Sent to ${plan.route.to.origin}${plan.route.to.pathname} (query preserved; native ${rec.responseType} response)`];
+      if (cred) did.push(cred === 'omit' ? 'credentials omit: XHR still sends same-origin cookies' : `credentials ${cred}`);
+      if (droppedAuth) did.push('Authorization removed: destination is a different origin');
+      rt.op(rec, 'route', 'applied', did.join('; '));
+    }
+    if (ic) {
+      const did: string[] = [];
+      let skipped = '';
+      if (hasHeaderOps(ic)) did.push(`${ic.setHeaders.length} set, ${ic.removeHeaders.length} removed header(s)`);
+      if (hasBodyOps(ic)) {
+        if (typeof body !== 'string') skipped = body == null ? 'no request body' : 'request body is not text';
+        else if (utf8Bytes(body) > LIMITS.bodyBytes) skipped = `request body over ${LIMITS.bodyBytes} bytes`;
+        else {
+          const r = transformBody(body, ic);
+          if (r.ok) { sendBody = r.text; did.push(`body: ${r.did.join(', ')}`); } else skipped = r.reason;
+        }
+      }
+      if (did.length) rt.op(rec, 'intercept', 'applied', `Request ${did.join('; ')}${skipped ? `; body skipped: ${skipped}` : ''}`, 'request');
+      else rt.op(rec, 'intercept', 'skipped', `Request unchanged: ${skipped}`, 'request');
+    }
+    const copies = () => { if (chaos?.fault.kind === 'replay') replay(xhr, st, plan, rec, sendBody, headers, withCredentials); };
+
+    if (!hold) {
+      if (plan.route || (ic && hasHeaderOps(ic))) {
+        // Re-open the page's own object at the destination so responseType/upload/progress stay native.
+        // Listeners see readystatechange (OPENED) once more here; it carries readyState 1 again.
+        const a = [...st.openArgs];
+        a[1] = target;
+        if (a.length < 3) a[2] = true;
+        (n.open as (...x: unknown[]) => void).apply(xhr, a);
+        for (const [k, v] of headers) n.setRequestHeader.call(xhr, k, v);
+        if (cred) xhr.withCredentials = withCredentials;
+      }
+      nativeSend(xhr, rec, [sendBody]);
+      return copies(); // after the primary dispatch
+    }
+
+    // Held: the real request runs on an internal native XHR; the page's object never sends, so the
+    // page sees one event sequence with the final values. Upload progress is not forwarded.
+    const inner = new XMLHttpRequest();
+    const a = [st.method, target, true, ...st.openArgs.slice(3)];
+    (n.open as (...x: unknown[]) => void).apply(inner, a);
+    for (const [k, v] of headers) n.setRequestHeader.call(inner, k, v);
+    inner.responseType = xhr.responseType;
+    inner.withCredentials = withCredentials;
+    inner.timeout = xhr.timeout;
+    const syn = newSynthetic(inner);
+    st.synthetic = syn;
+    shadow(xhr, syn);
+    let last = 'error';
+    for (const t of ['load', 'error', 'abort', 'timeout']) inner.addEventListener(t, () => { last = t; });
+    inner.addEventListener('loadend', () => finishHeld(xhr, inner, st, plan, rec, syn, last));
+    fireProgress(xhr, 'loadstart', 0);
+    const go = () => {
+      if (syn.done) return;
+      try {
+        (n.send as (b: unknown) => void).call(inner, sendBody ?? null);
+      } catch (e) {
+        syn.done = true;
+        rt.finish(rec, 'error');
+        throw e;
+      }
+      if (chaos?.fault.kind === 'timeout') {
+        const ms = chaos.fault.timeoutMs;
+        syn.timers.push(setTimeout(() => {
+          if (syn.done) return;
+          rt.op(rec, 'chaos', 'applied', `No response delivered within ${ms} ms: timed out (the request was sent; upstream effects may occur)`);
+          terminal(xhr, syn, 'timeout');
+          rt.finish(rec, 'timeout');
+        }, ms));
+      }
+    };
+    const pre = chaos?.rule.preDelayMs ?? 0;
+    if (!pre) return go();
+    syn.timers.push(setTimeout(go, pre));
+    syn.release = rt.own(() => { cancel(syn); go(); }); // Close: send now, still exactly once
+  }
+
+  /** The internal request completed (or failed): apply response work and real chaos, then deliver once. */
+  function finishHeld(xhr: XMLHttpRequest, inner: XMLHttpRequest, st: XState, plan: Plan, rec: ReqRecord, syn: Synthetic, ended: string) {
+    syn.inner = null;
+    if (syn.done) return; // aborted or timed out already
+    if (ended !== 'load') {
+      for (const o of rec.ops) if (o.state === 'selected') rt.op(rec, o.module, 'skipped', `Request ended (${ended}); nothing to edit`, o.part);
+      terminal(xhr, syn, ended as 'error' | 'timeout' | 'abort');
+      rt.finish(rec, ended === 'timeout' ? 'timeout' : ended === 'abort' ? 'aborted' : 'error');
+      return;
+    }
+    const type = xhr.responseType;
+    const textual = type === '' || type === 'text';
+    const raw = inner.response;
+    let reply: Reply = {
+      status: inner.status, statusText: inner.statusText,
+      headers: headerLines(inner.getAllResponseHeaders()), url: inner.responseURL,
+      text: textual ? (raw as string) : type === 'json' && raw != null ? JSON.stringify(raw) : '',
+      response: raw,
+    };
+    const bodyText = textual || (type === 'json' && raw != null) ? reply.text : null;
+    if (plan.intercept?.response) reply = editReply(reply, plan.intercept.rule.response, bodyText === null ? `XHR ${type || 'text'} response cannot be edited as text; native typed response kept` : '', type, rec);
+
+    const chaos = plan.chaos;
+    if (!chaos) return deliver(xhr, syn, reply, rec);
+    const f = chaos.fault;
+    const sent = `upstream returned ${reply.status}`;
+    switch (f.kind) {
+      case 'latency': case 'random-latency':
+        rt.op(rec, 'chaos', 'applied', `Delivery delayed ${chaos.delayMs} ms after the real response (${sent})`);
+        syn.timers.push(setTimeout(() => deliver(xhr, syn, reply, rec), chaos.delayMs));
+        syn.release = rt.own(() => deliver(xhr, syn, reply, rec)); // Close delivers the real reply now
+        return;
+      case 'status':
+        rt.op(rec, 'chaos', 'applied', `Real response replaced by HTTP ${f.status} (${sent}; upstream effects stand)`);
+        return deliver(xhr, syn, textReply(f.status, f.body ? [['content-type', jsonOrText(f.body)]] : [], f.body, st.method, type, reply.url), rec);
+      case 'network-error':
+        rt.op(rec, 'chaos', 'applied', `Response dropped: network error (${sent}; upstream effects stand)`);
+        terminal(xhr, syn, 'error');
+        return rt.finish(rec, 'error');
+      case 'timeout':
+        rt.op(rec, 'chaos', 'skipped', `Response arrived within ${f.timeoutMs} ms; delivered`);
+        return deliver(xhr, syn, reply, rec);
+      case 'malformed-json':
+        if (!textual && type !== 'json') { rt.op(rec, 'chaos', 'skipped', `XHR ${type} response is not text; native typed response delivered`); return deliver(xhr, syn, reply, rec); }
+        rt.op(rec, 'chaos', 'applied', `Body replaced with malformed JSON (${sent})`);
+        return deliver(xhr, syn, { ...reply, text: f.text, response: type === 'json' ? null : f.text }, rec);
+      case 'corrupt-json': {
+        let parsed: unknown;
+        if (bodyText !== null) { try { parsed = JSON.parse(reply.text); } catch { /* reported below */ } }
+        const p = parsed === undefined ? null : applyPatch(parsed, f.patch);
+        if (!p?.ok) {
+          rt.op(rec, 'chaos', 'skipped', `${bodyText === null ? `XHR ${type} response is not text` : parsed === undefined ? 'body is not valid JSON' : `field change ${p!.index + 1} failed (${p!.reason})`}; original response delivered`);
+          return deliver(xhr, syn, reply, rec);
+        }
+        const text = JSON.stringify(p.value);
+        rt.op(rec, 'chaos', 'applied', `${f.patch.length} JSON field change${f.patch.length > 1 ? 's' : ''} applied (${sent})`);
+        return deliver(xhr, syn, { ...reply, text, response: type === 'json' ? p.value : text }, rec);
+      }
+      case 'replay':
+        return deliver(xhr, syn, reply, rec);
+    }
+  }
+
+  /** Response transform over a reply. `cannotEditBody` names why body ops are skipped ('' = eligible). */
+  function editReply(r: Reply, t: Transform, cannotEditBody: string, type: XMLHttpRequestResponseType, rec: ReqRecord): Reply {
+    const did: string[] = [];
+    let skipped = '';
+    const out = { ...r, headers: [...r.headers] };
+    if (hasBodyOps(t)) {
+      if (cannotEditBody) skipped = cannotEditBody;
+      else if (utf8Bytes(r.text) > LIMITS.bodyBytes) skipped = `body exceeds ${LIMITS.bodyBytes} bytes`;
+      else {
+        const x = transformBody(r.text, t);
+        if (x.ok) {
+          out.text = x.text;
+          out.response = type === 'json' ? safeParse(x.text) : type === '' || type === 'text' ? x.text : convert(x.text, type, '');
+          did.push(`body: ${x.did.join(', ')}`);
+        } else skipped = x.reason;
+      }
+    }
+    if (hasHeaderOps(t)) {
+      const removed = new Set([...t.removeHeaders, ...t.setHeaders.map(([k]) => k)].map((k) => k.toLowerCase()));
+      out.headers = [...out.headers.filter(([k]) => !removed.has(k.toLowerCase())), ...t.setHeaders];
+      did.push(`${t.setHeaders.length} set, ${t.removeHeaders.length} removed header(s)`);
+    }
+    if (t.status && t.status !== r.status) {
+      did.push(`status ${r.status} → ${t.status}`);
+      out.status = t.status;
+      out.statusText = statusText(t.status);
+    }
+    if (did.length) rt.op(rec, 'intercept', 'applied', `Response ${did.join('; ')}${skipped ? `; body skipped: ${skipped}` : ''}`, 'response');
+    else rt.op(rec, 'intercept', 'skipped', `Response unchanged: ${skipped || 'nothing to change'}; original delivered`, 'response');
+    return out;
+  }
+
+  /** Bounded copies through the captured fetch; the page's XHR sees only the primary. */
+  function replay(xhr: XMLHttpRequest, st: XState, plan: Plan, parent: ReqRecord, body: unknown, headers: [string, string][], withCredentials: boolean) {
+    const f = plan.chaos!.fault as { copies: number; gapMs: number };
+    if (body != null && !(typeof body === 'string' || body instanceof Blob || body instanceof ArrayBuffer || ArrayBuffer.isView(body) || body instanceof URLSearchParams || body instanceof FormData)) {
+      rt.note(parent, 'Replay copies not sent: this body type cannot be sent again');
+      return;
+    }
+    const url = plan.route?.to ?? st.url;
+    const init: RequestInit = { method: st.method, headers, credentials: withCredentials ? 'include' : 'same-origin', ...(body != null && { body: body as BodyInit }) };
+    const ids: number[] = [];
+    const report = (extra = '') => rt.op(parent, 'chaos', 'applied', `Primary sent; ${ids.length} of ${f.copies} cop${f.copies > 1 ? 'ies' : 'y'} sent with fetch${ids.length ? ` (#${ids.join(', #')})` : ''}${extra}. The page sees the primary response only`);
+    report();
+    void (async () => {
+      for (let i = 1; i <= f.copies; i++) {
+        await (f.gapMs ? rt.wait(f.gapMs).catch(() => {}) : Promise.resolve());
+        const aborted = parent.outcome === 'aborted';
+        if (rt.inert || !rt.config().active.chaos || aborted) return report(`; stopped before copy ${i}: ${rt.inert ? 'Workbench closed' : aborted ? 'caller aborted' : 'Chaos deactivated'}`);
+        const release = rt.acquireChild();
+        if (!release) { rt.note(parent, `Replay copy ${i} skipped: ${LIMITS.replayInFlight} copies already in flight`); continue; }
+        const ctl = new AbortController();
+        const unown = rt.own(() => ctl.abort(new DOMException('Workbench closed', 'AbortError')));
+        const child = rt.start('fetch', st.method, url, { revision: parent.revision, matched: false, provider: 'network', ops: [], notes: [`Replay copy ${i} of XHR request #${parent.id}, sent with fetch; the page does not see this response`] }, parent);
+        ids.push(child.id);
+        report();
+        nativeFetch(url.href, { ...init, signal: ctl.signal }).then(
+          (r) => { rt.finish(child, 'ok', r.status); r.body?.cancel().catch(() => {}); },
+          (e: unknown) => rt.finish(child, e instanceof DOMException && e.name === 'AbortError' ? 'aborted' : 'error'),
+        ).finally(() => { release(); unown(); });
+      }
+    })();
+  }
+
+  // ---------- synthetic providers
+
+  function deliverMock(xhr: XMLHttpRequest, st: XState, plan: Plan, rec: ReqRecord) {
+    const { rule, slot, index } = plan.mock!;
+    const which = rule.slots.length > 1 ? `Reply ${index + 1} of ${rule.slots.length}` : 'Synthetic';
+    if (!slot) return synthetic(xhr, st, rec, 0, 'error', () => rt.op(rec, 'mock', 'applied', `Sequence exhausted after ${rule.slots.length} replies: network error, nothing sent`));
+    const after = slot.delayMs ? ` after ${slot.delayMs} ms` : '';
+    if (slot.fault !== 'none') return synthetic(xhr, st, rec, slot.delayMs, slot.fault === 'timeout' ? 'timeout' : 'error', () => rt.op(rec, 'mock', 'applied', `${which}: ${slot.fault}${after}; no upstream request`));
+    synthetic(xhr, st, rec, slot.delayMs, () => {
+      let r = textReply(slot.status, slot.headers, slot.body, st.method, xhr.responseType, '');
+      if (plan.intercept?.response) r = editReply(r, plan.intercept.rule.response, '', xhr.responseType, rec);
+      rt.op(rec, 'mock', 'applied', `${which} ${xhr.responseType || 'text'} reply: HTTP ${slot.status}${after}; no upstream request`);
+      return r;
+    });
+  }
+
+  function deliverChaos(xhr: XMLHttpRequest, st: XState, plan: Plan, rec: ReqRecord) {
+    const f = plan.chaos!.fault;
+    const done = (r: string) => () => rt.op(rec, 'chaos', 'applied', `${r}; nothing was sent`);
+    if (f.kind === 'network-error') return synthetic(xhr, st, rec, 0, 'error', done('Synthetic network error'));
+    if (f.kind === 'timeout') return synthetic(xhr, st, rec, f.timeoutMs, 'timeout', done(`Synthetic timeout after ${f.timeoutMs} ms`));
+    const [status, body] = f.kind === 'status' ? [f.status, f.body] : [200, f.kind === 'malformed-json' ? f.text : ''];
+    synthetic(xhr, st, rec, 0, () => {
+      let r = textReply(status, body ? [['content-type', f.kind === 'malformed-json' ? 'application/json' : jsonOrText(body)]] : [], body, st.method, xhr.responseType, '');
+      if (plan.intercept?.response) r = editReply(r, plan.intercept.rule.response, '', xhr.responseType, rec);
+      done(f.kind === 'status' ? `Synthetic HTTP ${status}` : 'Synthetic 200 with malformed JSON')();
+      return r;
+    });
+  }
+
+  /** Synthetic delivery after `delayMs`: a reply (built when due) or a transport failure. xhr.timeout still applies. */
+  function synthetic(xhr: XMLHttpRequest, st: XState, rec: ReqRecord, delayMs: number, what: (() => Reply) | 'error' | 'timeout', applied?: () => void) {
+    const syn = newSynthetic(null);
+    st.synthetic = syn;
+    shadow(xhr, syn);
+    const due = () => {
+      if (syn.done) return;
+      cancel(syn);
+      if (typeof what === 'function') return deliver(xhr, syn, what(), rec);
+      applied?.();
+      terminal(xhr, syn, what);
+      rt.finish(rec, what);
+    };
+    fireProgress(xhr, 'loadstart', 0);
+    syn.release = rt.own(due); // Close settles the selected synthetic outcome now
+    syn.timers.push(setTimeout(due, delayMs));
+    if (xhr.timeout > 0 && xhr.timeout <= delayMs) {
+      syn.timers.push(setTimeout(() => {
+        if (syn.done) return;
+        cancel(syn);
+        terminal(xhr, syn, 'timeout');
+        rt.finish(rec, 'timeout');
+      }, xhr.timeout));
+    }
+  }
+
+  function deliver(xhr: XMLHttpRequest, syn: Synthetic, r: Reply, rec: ReqRecord) {
+    if (syn.done) return;
+    cancel(syn);
+    syn.status = r.status;
+    syn.statusText = r.statusText;
+    syn.headers = r.headers.map(([k, v]) => `${k.toLowerCase()}: ${v}\r\n`).join('');
+    syn.url = r.url;
+    syn.readyState = 2;
+    fire(xhr, 'readystatechange');
+    if (syn.done) return; // a handler may have aborted
+    syn.body = r.text;
+    syn.readyState = 3;
+    fire(xhr, 'readystatechange');
+    const bytes = utf8Bytes(r.text);
+    fireProgress(xhr, 'progress', bytes);
+    if (syn.done) return;
+    syn.response = r.response;
+    syn.readyState = 4;
+    syn.done = true;
+    rt.finish(rec, 'ok', r.status);
+    fire(xhr, 'readystatechange');
+    fireProgress(xhr, 'load', bytes);
+    fireProgress(xhr, 'loadend', bytes);
+  }
+
+  function terminal(xhr: XMLHttpRequest, syn: Synthetic, type: 'abort' | 'timeout' | 'error') {
+    cancel(syn);
+    syn.done = true;
+    Object.assign(syn, { status: 0, statusText: '', headers: '', response: null, body: '', readyState: 4 });
+    fire(xhr, 'readystatechange');
+    fireProgress(xhr, type, 0);
+    fireProgress(xhr, 'loadend', 0);
+  }
 
   function captureSend(xhr: XMLHttpRequest, st: XState, rec: ReqRecord, body: unknown) {
     const c = newCapture(rec, st.method, st.url);
@@ -143,7 +466,7 @@ export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
     c.body = requestBody(body, ct, c);
     xhr.addEventListener('loadend', () => {
       c.status = xhr.status || undefined;
-      c.synthetic = !!st.synthetic;
+      c.synthetic = rec.provider !== 'network';
       c.resHeaders = headerLines(xhr.getAllResponseHeaders()).filter(([k]) => !sensitiveName(k));
       const t = xhr.responseType;
       const rct = xhr.getResponseHeader('content-type') ?? '';
@@ -162,81 +485,24 @@ export function createXhr(n: XhrNatives, rt: Runtime): XhrNatives {
     }, { once: true });
   }
 
-  function deliverMock(xhr: XMLHttpRequest, st: XState, rec: ReqRecord, _body: unknown) {
-    const m = st.plan.mock!;
-    const bodyless = st.method === 'HEAD' || BODYLESS_STATUS.has(m.status);
-    const text = bodyless ? '' : m.body;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
-    let release = () => {};
-    const syn: Synthetic = {
-      readyState: 1,
-      status: 0,
-      statusText: '',
-      headers: '',
-      body: text,
-      response: null,
-      done: false,
-      cancel() {
-        clearTimeout(timer);
-        clearTimeout(timeoutTimer);
-        release();
-      },
-    };
-    st.synthetic = syn;
-    shadow(xhr, syn);
-
-    const deliver = () => {
-      if (syn.done) return;
-      syn.cancel();
-      syn.status = m.status;
-      syn.statusText = STATUS_TEXT[m.status] ?? '';
-      syn.headers = `content-type: ${m.contentType}\r\n`;
-      syn.readyState = 2;
-      fire(xhr, 'readystatechange');
-      if (syn.done) return; // a handler may have aborted
-      syn.readyState = 3;
-      fire(xhr, 'readystatechange');
-      const bytes = new TextEncoder().encode(text).byteLength;
-      fireProgress(xhr, 'progress', bytes);
-      if (syn.done) return;
-      syn.response = convert(text, xhr.responseType, m.contentType);
-      syn.readyState = 4;
-      syn.done = true;
-      rt.op(rec, 'mock', 'applied', `Synthetic ${m.status} ${xhr.responseType || 'text'} reply${m.delayMs ? ` after ${m.delayMs} ms` : ''}; no upstream request`);
-      rt.finish(rec, 'ok', m.status);
-      fire(xhr, 'readystatechange');
-      fireProgress(xhr, 'load', bytes);
-      fireProgress(xhr, 'loadend', bytes);
-    };
-
-    fireProgress(xhr, 'loadstart', 0);
-    release = rt.own(deliver);
-    timer = setTimeout(deliver, m.delayMs);
-    if (xhr.timeout > 0 && xhr.timeout <= m.delayMs) {
-      timeoutTimer = setTimeout(() => {
-        if (syn.done) return;
-        syn.cancel();
-        terminal(xhr, syn, 'timeout');
-        rt.finish(rec, 'timeout');
-      }, xhr.timeout);
-    }
-  }
-
-  function terminal(xhr: XMLHttpRequest, syn: Synthetic, type: 'abort' | 'timeout') {
-    syn.done = true;
-    syn.status = 0;
-    syn.statusText = '';
-    syn.headers = '';
-    syn.response = null;
-    syn.body = '';
-    syn.readyState = 4;
-    fire(xhr, 'readystatechange');
-    fireProgress(xhr, type, 0);
-    fireProgress(xhr, 'loadend', 0);
-  }
-
   return { open, send, setRequestHeader, abort };
+}
+
+function newSynthetic(inner: XMLHttpRequest | null): Synthetic {
+  return { readyState: 1, status: 0, statusText: '', headers: '', body: '', response: null, url: '', done: false, inner, timers: [], release: () => {} };
+}
+
+function cancel(syn: Synthetic) {
+  for (const t of syn.timers) clearTimeout(t);
+  syn.timers.length = 0;
+  syn.release();
+  syn.release = () => {};
+}
+
+function textReply(status: number, headers: Pair[], body: string, method: string, type: XMLHttpRequestResponseType, url: string): Reply {
+  const text = method === 'HEAD' || BODYLESS_STATUS.has(status) ? '' : body;
+  const ct = headers.find(([k]) => k.toLowerCase() === 'content-type')?.[1] ?? '';
+  return { status, statusText: statusText(status), headers, text, response: convert(text, type, ct), url };
 }
 
 function shadow(xhr: XMLHttpRequest, syn: Synthetic) {
@@ -246,7 +512,7 @@ function shadow(xhr: XMLHttpRequest, syn: Synthetic) {
     readyState: get(() => syn.readyState),
     status: get(() => syn.status),
     statusText: get(() => syn.statusText),
-    responseURL: get(() => ''),
+    responseURL: get(() => (syn.readyState >= 2 ? syn.url : '')),
     responseXML: get(() => null),
     responseText: get(() => {
       if (!textual()) throw new DOMException("The value is only accessible if the object's 'responseType' is '' or 'text'.", 'InvalidStateError');
@@ -257,28 +523,22 @@ function shadow(xhr: XMLHttpRequest, syn: Synthetic) {
       configurable: true,
       value: (name: string) => {
         if (syn.readyState < 2 || !syn.headers) return null;
-        const line = syn.headers.split('\r\n').find((l) => l.toLowerCase().startsWith(String(name).toLowerCase() + ':'));
-        return line ? line.slice(line.indexOf(':') + 1).trim() : null;
+        const vals = syn.headers.split('\r\n').filter((l) => l.toLowerCase().startsWith(String(name).toLowerCase() + ':')).map((l) => l.slice(l.indexOf(':') + 1).trim());
+        return vals.length ? vals.join(', ') : null;
       },
     },
     getAllResponseHeaders: { configurable: true, value: () => (syn.readyState >= 2 ? syn.headers : '') },
   });
 }
 
+const safeParse = (t: string) => { try { return JSON.parse(t); } catch { return null; } };
+
 function convert(text: string, type: XMLHttpRequestResponseType, contentType: string): unknown {
   switch (type) {
-    case 'json':
-      try {
-        return JSON.parse(text);
-      } catch {
-        return null;
-      }
-    case 'arraybuffer':
-      return new TextEncoder().encode(text).buffer;
-    case 'blob':
-      return new Blob([text], { type: contentType });
-    default:
-      return text;
+    case 'json': return safeParse(text);
+    case 'arraybuffer': return new TextEncoder().encode(text).buffer;
+    case 'blob': return new Blob([text], { type: contentType });
+    default: return text;
   }
 }
 

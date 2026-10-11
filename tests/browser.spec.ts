@@ -2,6 +2,7 @@
 // (injection; NOT evidence of saved-bookmark installation).
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { activate, addIntercept, addMock, addRoute, editFirst, fill, newRule, saveRule, tab } from './rule-helpers';
 
 const A = `http://127.0.0.1:${process.env.AW_PORT ?? 4310}`;
 const B = `http://127.0.0.1:${process.env.AW_OTHER_PORT ?? 4311}`;
@@ -25,49 +26,8 @@ async function hitsDelta(page: Page, fn: () => Promise<unknown>) {
   return d;
 }
 
-const tab = (page: Page, name: string) => page.getByRole('navigation', { name: 'Modules' }).getByRole('button', { name, exact: true }).click();
-
-async function fill(page: Page, fields: Record<string, string | number | undefined>) {
-  for (const [id, v] of Object.entries(fields)) if (v !== undefined) await page.locator(`#${id}`).fill(String(v));
-}
-async function addMock(page: Page, o: { path?: string; status?: number; delay?: number; ct?: string; body?: string; activate?: boolean } = {}) {
-  await tab(page, 'Mock');
-  await page.getByRole('button', { name: 'Add ad-hoc rule' }).click();
-  await fill(page, { 'aw-path': o.path, 'aw-status': o.status, 'aw-delay': o.delay, 'aw-ct': o.ct, 'aw-body': o.body });
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  if (o.activate !== false) await activate(page, 'Mock');
-}
-async function addRoute(page: Page, o: { origin: string; rewrite?: string; path?: string; activate?: boolean }) {
-  await tab(page, 'Route');
-  await page.getByRole('button', { name: 'Add page rule' }).click();
-  await fill(page, { 'aw-dest': o.origin, 'aw-rewrite': o.rewrite, 'aw-path': o.path });
-  await page.getByRole('button', { name: 'Save rule' }).click();
-  if (o.activate !== false) await activate(page, 'Route');
-}
-async function addIntercept(page: Page, o: { find: string; replace?: string; path?: string }) {
-  await tab(page, 'Intercept');
-  await page.getByRole('button', { name: 'Add rule', exact: true }).click();
-  await fill(page, { 'aw-find': o.find, 'aw-replace': o.replace, 'aw-path': o.path });
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await activate(page, 'Intercept');
-}
-async function editMock(page: Page, fields: Record<string, string | number>) {
-  await tab(page, 'Mock');
-  await page.getByRole('button', { name: /^Edit / }).click();
-  await fill(page, fields);
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-}
-async function editPath(page: Page, module: 'Intercept', path: string) {
-  await tab(page, module);
-  await page.getByRole('button', { name: /^Edit / }).click();
-  await fill(page, { 'aw-path': path });
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-}
-async function activate(page: Page, module: 'Mock' | 'Route' | 'Intercept') {
-  await tab(page, module);
-  await page.getByRole('button', { name: `Activate ${module} module` }).click();
-  await expect(page.getByRole('button', { name: `Deactivate ${module} module` })).toBeVisible();
-}
+async function editMock(page: Page, fields: Record<string, string | number>) { await editFirst(page, 'Mock', fields); }
+async function editPath(page: Page, module: 'Intercept', path: string) { await editFirst(page, module, { 'aw-path': path }); }
 async function newestDetail(page: Page) {
   await tab(page, 'Home');
   await page.locator('[data-api-workbench] button[data-id]').first().click();
@@ -230,7 +190,7 @@ test.describe('static mock (G09 subset)', () => {
 
   test('custom status/body and bodyless 204', async ({ page }) => {
     await launch(page);
-    await addMock(page, { status: 204 });
+    await addMock(page, { status: 204, body: '' });
     const r = await send(page, { transport: 'xhr', url: '/api/mock-target' });
     expect(r).toMatchObject({ status: 204, responseText: '' });
     await editMock(page, { 'aw-status': 503, 'aw-body': 'down', 'aw-ct': 'text/plain' });
@@ -238,10 +198,10 @@ test.describe('static mock (G09 subset)', () => {
     expect(f).toMatchObject({ ok: true, status: 503, body: { text: 'down' } });
     // Invalid save stays in the editor and leaves the live rule unchanged.
     await page.getByRole('button', { name: /^Edit / }).click();
-    await page.locator('#aw-status').fill('700');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.locator('#aw-status-err')).toHaveText('Status must be an integer from 200 to 599');
-    await expect(page.locator('#aw-status')).toBeFocused();
+    await page.locator('#aw-slot-0-status').fill('700');
+    await saveRule(page);
+    await expect(page.locator('#aw-slot-0-status-err')).toHaveText('Whole number from 200 to 599');
+    await expect(page.locator('#aw-slot-0-status')).toBeFocused();
     expect((await send(page, { url: '/api/mock-target' })).status).toBe(503);
   });
 
@@ -332,7 +292,7 @@ test.describe('route (G06/G12 subset)', () => {
     expect(r.body.text).toContain('/api/r0-routed'); // unedited native bytes
     const detail = await newestDetail(page);
     await expect(detail).toContainText(/Route\s*applied/);
-    await expect(detail).toContainText(/Intercept\s*skipped/);
+    await expect(detail).toContainText(/Intercept response\s*skipped/);
     await expect(detail).toContainText('arraybuffer response cannot be edited as text');
   });
 
@@ -377,11 +337,12 @@ test.describe('route (G06/G12 subset)', () => {
 
   test('invalid destination cannot be saved; nothing is routed', async ({ page }) => {
     await launch(page);
-    await tab(page, 'Route');
-    await page.getByRole('button', { name: 'Add page rule' }).click();
-    await fill(page, { 'aw-dest': 'http://b.test/with/path' });
-    await page.getByRole('button', { name: 'Save rule' }).click();
-    await expect(page.locator('#aw-dest-err')).toHaveText('Enter only the origin; use Path rewrite for the path');
+    await newRule(page, 'Route');
+    await fill(page, { 'aw-path': '/api/mock-target', 'aw-dest': 'http://b.test/with/path' });
+    await saveRule(page);
+    await expect(page.locator('#aw-route-dest-err')).toHaveText('Enter only scheme, host and port');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('button', { name: 'Discard' }).click();
     await expect(page.getByRole('button', { name: 'Activate Route module' })).toBeDisabled();
     const d = await hitsDelta(page, () => send(page, { url: '/api/mock-target' }));
     expect(d).toEqual({ '/api/mock-target': 1 });
@@ -403,16 +364,15 @@ test.describe('route (G06/G12 subset)', () => {
 
   test('dirty editor: navigation asks; Keep editing retains the draft, Discard leaves', async ({ page }) => {
     await launch(page);
-    await tab(page, 'Mock');
-    await page.getByRole('button', { name: 'Add ad-hoc rule' }).click();
-    await page.locator('#aw-body').fill('draft body');
+    await newRule(page, 'Mock');
+    await page.locator('#aw-slot-0-body').fill('draft body');
     await tab(page, 'Route');
     await page.getByRole('button', { name: 'Keep editing' }).click();
-    await expect(page.locator('#aw-body')).toHaveValue('draft body');
+    await expect(page.locator('#aw-slot-0-body')).toHaveValue('draft body');
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Discard' }).click();
     await expect(page.getByRole('heading', { name: 'Mock Server' })).toBeVisible();
-    await expect(page.getByText('No ad-hoc rules')).toBeVisible();
+    await expect(page.getByText('No mock rules yet', { exact: false })).toBeVisible();
   });
 });
 

@@ -108,7 +108,7 @@ export function createSettingsUi(kit: Kit, o: { version: string; onProfileChange
 
     async function remove(a: Aggregate) {
       const last = s.all().length === 1;
-      const v = await kit.ask(`Delete profile ${a.profile.name}? Its ${a.endpoints.length} endpoint(s), ${a.plans.length} plan(s)${a.legacyRules.length ? ` and ${a.legacyRules.length} saved rule(s)` : ''} are removed from this browser.${last ? ' It is the last profile, so a new empty profile named Default replaces it.' : ''} Export it first if you may need it.`, [
+      const v = await kit.ask(`Delete profile ${a.profile.name}? Its ${a.endpoints.length} endpoint(s), ${a.plans.length} plan(s)${a.rules.length ? ` and ${a.rules.length} rule(s)` : ''} are removed from this browser.${last ? ' It is the last profile, so a new empty profile named Default replaces it.' : ''} Export it first if you may need it.`, [
         { label: 'Cancel', cls: 'aw-out', value: 'cancel' }, { label: 'Delete', cls: 'aw-dst', value: 'delete' },
       ]);
       if (v !== 'delete') return;

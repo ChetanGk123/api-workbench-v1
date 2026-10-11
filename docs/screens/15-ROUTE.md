@@ -12,7 +12,7 @@ Must not claim a proxy/security bypass, rematch routed URL recursively, route wh
 
 ## Task S15.1 — Build list and validated route draft
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** URL/origin/path semantics and credentials. **Status:** NOT STARTED. **Depends on:** S00, matcher/route validators.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** URL/origin/path semantics and credentials. **Status:** IMPLEMENTED; verification incomplete ([R4 evidence](../R4_REPORT.md)). **Depends on:** S00, matcher/route validators.
 
 1. Reuse list/matcher draft components with stable rule IDs and future-request revision behavior.
 2. Validate HTTP(S) origins, supported exact/trailing-capture rewrites and conditions; preserve invalid input until corrected.
@@ -23,7 +23,7 @@ Must not claim a proxy/security bypass, rematch routed URL recursively, route wh
 
 ## Task S15.2 — Wire credential and signing policies to native routing
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** request integrity and transport-native binary behavior. **Status:** NOT STARTED. **Depends on:** S15.1, verified R0 binary route and signing preparation.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** request integrity and transport-native binary behavior. **Status:** PARTIAL: credentials, explicit Authorization and native binary routing built; signing audience/freshness display waits for R6 ([R4 evidence](../R4_REPORT.md)). **Depends on:** S15.1, verified R0 binary route and signing preparation.
 
 1. Apply one route to selected real primary request with snapshot credentials; strip cross-origin Authorization unless explicitly permitted for that destination.
 2. Preserve path/query/body/headers not explicitly modified; no request reconstruction that consumes a caller stream unnecessarily.
@@ -35,7 +35,7 @@ Must not claim a proxy/security bypass, rematch routed URL recursively, route wh
 
 ## Task S15.3 — Render route trace and browser-policy failures
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** honest applied/skipped/error evidence. **Status:** NOT STARTED. **Depends on:** S15.2/S21.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** honest applied/skipped/error evidence. **Status:** PARTIAL: traces built; allowed/denied CORS routing cases not re-run for R4 ([R4 evidence](../R4_REPORT.md)). **Depends on:** S15.2/S21.
 
 1. Show original/final URLs, transport, rule, revision and applied/skipped/superseded counts.
 2. Explain unsupported operation with reason and original behavior; keep actual network failures opaque when cause not knowable.

@@ -1,13 +1,13 @@
 // Endpoints collection, endpoint editor, global headers/presets, Promote common and environments.
 // Every change goes through the session's validated commands; editors hold detached drafts.
 import {
-  aliasReferences, BOUNDS, METHODS, newEndpoint, renameAliasRefs, sensitiveHeader, validateEndpointIn, validateOrigin,
+  aliasReferences, BOUNDS, linkedMatcher, METHODS, newEndpoint, renameAliasRefs, sensitiveHeader, validateEndpointIn, validateOrigin,
   type Aggregate, type Body, type BodyKind, type Check, type Diag, type Endpoint, type Header, type Pair, type Part,
 } from '../data/schema';
 import { describeCheck } from '../tester/once';
 import { h, icon } from './dom';
 import {
-  btn, checkbox, countBadge, Errors, field, heading, input, methodBadge, section, select, textarea, tile,
+  btn, checkbox, countBadge, Errors, field, heading, input, methodBadge, pairRows, section, select, textarea, tile,
   type Built, type Form, type Kit, type Ret,
 } from './kit';
 
@@ -108,12 +108,12 @@ export function createEndpointsUi(kit: Kit) {
   async function remove(e: Endpoint) {
     const agg = s.agg();
     const plans = agg.plans.filter((p) => p.steps.some((st) => st.endpointId === e.id)).map((p) => p.name);
-    const rules = agg.legacyRules.filter((r) => (r as { endpointId?: string }).endpointId === e.id).length;
+    const rules = agg.rules.filter((r) => r.endpointId === e.id).length;
     const refs = aliasReferences(agg, e.alias, e.id);
     const auth = agg.authContexts.filter((a) => a.refresh?.endpointId === e.id).map((a) => a.label);
     const impact = [
       plans.length ? `removed from plan${plans.length > 1 ? 's' : ''} ${plans.join(', ')}` : '',
-      rules ? `${rules} saved rule${rules > 1 ? 's' : ''} keep their own matcher but lose the link` : '',
+      rules ? `${rules} linked rule${rules > 1 ? 's' : ''} keep their last matcher and lose the link` : '',
       refs.length ? `${refs.reduce((n, r) => n + r.count, 0)} reference(s) to {{${e.alias}…}} in ${refs.map((r) => r.name).join(', ')} become unresolved` : '',
     ].filter(Boolean);
     if (auth.length) {
@@ -127,29 +127,16 @@ export function createEndpointsUi(kit: Kit) {
     const diags = await s.edit((a) => {
       a.endpoints = a.endpoints.filter((x) => x.id !== e.id);
       for (const p of a.plans) p.steps = p.steps.filter((st) => st.endpointId !== e.id);
-      for (const r of a.legacyRules as { endpointId?: string }[]) if (r.endpointId === e.id) delete r.endpointId;
+      for (const r of a.rules) if (r.endpointId === e.id) {
+        // Detach to the last resolved matcher so the rule keeps matching what it matched.
+        r.matcher = { ...r.matcher, ...linkedMatcher(a, e) };
+        delete r.endpointId;
+      }
     });
     kit.announce(diags ? `Not deleted: ${diags[0]!.message}` : `${e.name} deleted.`);
   }
 
   // ---------- shared row editors
-  function pairRows(list: Pair[], what: string, errs: Errors, path: string, onChange: () => void = () => {}) {
-    const wrap = h('div', { class: 'aw-col aw-gap6' });
-    const draw = (focusLast = false) => {
-      wrap.replaceChildren(...list.map((p, i) => {
-        const name = input(p[0], (v) => { p[0] = v; onChange(); }, { mono: true, label: `${what} ${i + 1} name`, placeholder: 'name' });
-        const err = h('span', { class: 'aw-err', role: 'alert' });
-        errs.slot(`${path}.${i}`, err, name);
-        return h('div', { class: 'aw-col' }, h('div', { class: 'aw-row aw-gap6' }, name,
-          input(p[1], (v) => { p[1] = v; onChange(); }, { mono: true, label: `${what} ${i + 1} value`, placeholder: 'value' }),
-          btn([icon('x')], () => { list.splice(i, 1); onChange(); draw(); }, 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Remove ${what} ${i + 1}` })), err);
-      }), btn([icon('plus', 'aw-i aw-i12'), `Add ${what}`], () => { list.push(['', '']); onChange(); draw(true); }, 'aw-btn aw-dash aw-sm'));
-      if (focusLast) wrap.querySelectorAll<HTMLInputElement>('input')[list.length * 2 - 2]?.focus();
-    };
-    draw();
-    return wrap;
-  }
-
   function headerRows(list: Header[], errs: Errors, path: string, allowRemove: boolean, onChange: () => void) {
     const wrap = h('div', { class: 'aw-col aw-gap6' });
     const draw = (focusLast = false) => {

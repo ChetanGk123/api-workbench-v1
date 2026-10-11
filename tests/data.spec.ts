@@ -2,6 +2,7 @@
 // Launch = evaluating the decoded generated bookmark (injection; NOT saved-bookmark evidence).
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { addMock } from './rule-helpers';
 
 const A = `http://127.0.0.1:${process.env.AW_PORT ?? 4310}`;
 const B = `http://127.0.0.1:${process.env.AW_OTHER_PORT ?? 4311}`;
@@ -150,10 +151,7 @@ test.describe('endpoints and Once (G14/G15)', () => {
 
   test('Direct bypasses an active mock; Apply rules is mocked and traced', async ({ page }) => {
     await launch(page);
-    await tab(page, 'Mock');
-    await button(page, 'Add ad-hoc rule').click();
-    await button(page, 'Save').click();
-    await button(page, 'Activate Mock module').click();
+    await addMock(page);
     await addEndpoint(page, { name: 'Target', alias: 'target', url: '/api/mock-target' });
     await runOnce(page, 'Target', 'Direct');
     expect((await counters(page))['/api/mock-target']).toBe(1);

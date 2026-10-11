@@ -12,7 +12,7 @@ Must not allow impossible status/body combinations, manually update native cooki
 
 ## Task S11.1 — Implement matcher, linking and draft validation
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** link/condition semantics and safe effective save. **Status:** NOT STARTED. **Depends on:** S00.2, matcher validator/editor.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** link/condition semantics and safe effective save. **Status:** PARTIAL: link/detach, conditions, priority and validation built; the sample-request match preview is not ([R4 evidence](../R4_REPORT.md)). **Depends on:** S00.2, matcher validator/editor.
 
 1. Bind rule draft/base revision; resolve linked endpoint by ID and show synced matcher.
 2. Offer explicit exact/glob/origin mode and a sample request match preview, including condition-not-evaluated.
@@ -23,7 +23,7 @@ Must not allow impossible status/body combinations, manually update native cooki
 
 ## Task S11.2 — Implement static and sequence responses
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** response legality and deterministic sequence configuration. **Status:** NOT STARTED. **Depends on:** S11.1, slot/response validators.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** response legality and deterministic sequence configuration. **Status:** IMPLEMENTED; verification incomplete ([R4 evidence](../R4_REPORT.md)). **Depends on:** S11.1, slot/response validators.
 
 1. Build static/sequence slot fields with method/bodyless legality, content headers and UTF-8 feedback.
 2. Add/reorder/remove slots while preserving stable slot identity; cannot save an empty sequence.
@@ -34,7 +34,7 @@ Must not allow impossible status/body combinations, manually update native cooki
 
 ## Task S11.3 — Implement sample reuse and save/runtime integration
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** sample provenance, action revision and active effects. **Status:** NOT STARTED. **Depends on:** S11.2, S09 samples, mock engine.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** sample provenance, action revision and active effects. **Status:** PARTIAL: From endpoint copies a complete saved sample (truncated refused, redacted labelled); choosing among recorded samples per slot is not built ([R4 evidence](../R4_REPORT.md)). **Depends on:** S11.2, S09 samples, mock engine.
 
 1. Preview available recorded/saved samples and completeness before copy into chosen slot.
 2. Preserve redaction/unresolved placeholders and require replacement where needed; absent sample disables with explanation.

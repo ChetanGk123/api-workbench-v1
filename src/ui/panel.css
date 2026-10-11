@@ -63,7 +63,7 @@
 /* R2 workspaces: endpoints, editors, Once, settings. */
 .aw-wrapbtns{flex-wrap:wrap}
 .aw-profname{max-width:120px;flex-shrink:1;min-width:0}
-.aw-eplist{list-style:none;margin:0;padding:0}
+.aw-eplist,.aw-rulelist{list-style:none;margin:0;padding:0}
 .aw-eprow{align-items:flex-start}
 .aw-endcol{align-items:flex-end;flex-shrink:0}
 .aw-checkrow{flex-wrap:wrap}.aw-checkrow .aw-in{flex:1 1 90px;min-width:0}

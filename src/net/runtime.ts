@@ -1,11 +1,13 @@
 // Runtime state shared by the adapters: config pointer, bounded records, owned waits and body slots.
 import type { Capture } from './capture';
-import { LIMITS, type Config, type Op, type Plan, type Transport } from './plan';
+import { freshState, LIMITS, MODULES, type Config, type Op, type Part, type Plan, type RuleStates, type Transport } from './plan';
 
 export type Outcome = 'pending' | 'ok' | 'error' | 'aborted' | 'timeout';
 
 export interface ReqRecord {
   readonly id: number;
+  /** Replay copies point at the request they copy; they never enter rule selection. */
+  readonly parentId?: number;
   readonly transport: Transport;
   readonly method: string;
   /** origin + path; query values are never stored. */
@@ -14,8 +16,8 @@ export interface ReqRecord {
   readonly revision: number;
   readonly provider: Plan['provider'];
   readonly startedAt: number;
-  /** tester = sent by Test → Once with Apply rules; page = everything else. */
-  readonly source: 'page' | 'tester';
+  /** tester = sent by Test → Once with Apply rules; replay = a chaos copy; page = everything else. */
+  readonly source: 'page' | 'tester' | 'replay';
   /** Present only when the recorder was on at intake. Redacted as it is built. */
   capture?: Capture;
   finalUrl?: string;
@@ -40,9 +42,14 @@ export interface Runtime {
   /** Mark a record's capture complete and hand it to the recorder. */
   captured(rec: ReqRecord): void;
   config(): Config;
-  setConfig(next: Config): void;
-  start(transport: Transport, method: string, url: URL, plan: Plan): ReqRecord;
-  op(rec: ReqRecord, module: Op['module'], state: Op['state'], reason?: string): void;
+  /** Install a new config; resets per-rule state for newly activated modules and changed action revisions. */
+  setConfig(next: Omit<Config, 'revision'>): void;
+  /** Sequence cursors, chaos samples and budgets. Runtime only. */
+  readonly states: RuleStates;
+  start(transport: Transport, method: string, url: URL, plan: Plan, parent?: ReqRecord): ReqRecord;
+  op(rec: ReqRecord, module: Op['module'], state: Op['state'], reason?: string, part?: Part): void;
+  /** Replay copy slot; null when the global in-flight limit is reached. */
+  acquireChild(): (() => void) | null;
   note(rec: ReqRecord, text: string): void;
   finish(rec: ReqRecord, outcome: Outcome, status?: number): void;
   records(): readonly ReqRecord[];
@@ -66,6 +73,8 @@ export function createRuntime(origin: string, initial: Config): Runtime {
   const pending = new Set<() => void>();
   let bodySlots = 0;
   let tester = false;
+  let children = 0;
+  const states: RuleStates = new Map();
   const changed = () => subs.forEach((fn) => fn());
 
   const rt: Runtime = {
@@ -82,11 +91,20 @@ export function createRuntime(origin: string, initial: Config): Runtime {
       rt.onCapture?.(rec);
     },
     config: () => cfg,
+    states,
     setConfig(next) {
+      const now = performance.now();
+      const ids = new Set(next.rules.map((r) => r.id));
+      for (const id of states.keys()) if (!ids.has(id)) states.delete(id);
+      for (const r of next.rules) {
+        const s = states.get(r.id);
+        if (!s || s.revision !== r.revision || (next.active[r.kind] && !cfg.active[r.kind])) states.set(r.id, freshState(r, now));
+      }
+      for (const m of MODULES) if (!next.active[m] && cfg.active[m]) for (const r of next.rules) if (r.kind === m) states.delete(r.id);
       cfg = Object.freeze({ ...next, revision: cfg.revision + 1 });
       changed();
     },
-    start(transport, method, url, plan) {
+    start(transport, method, url, plan, parent) {
       const rec: ReqRecord = {
         id: nextId++,
         transport,
@@ -96,19 +114,20 @@ export function createRuntime(origin: string, initial: Config): Runtime {
         revision: plan.revision,
         provider: plan.provider,
         startedAt: performance.now(),
-        source: tester ? 'tester' : 'page',
+        source: parent ? 'replay' : tester ? 'tester' : 'page',
         ops: plan.ops.map((o) => ({ ...o })),
         outcome: 'pending',
-        notes: [],
+        notes: plan.notes.slice(0, LIMITS.eventsPerRecord),
+        ...(parent && { parentId: parent.id }),
       };
-      if (plan.routeTo) rec.finalUrl = plan.routeTo.origin + plan.routeTo.pathname;
+      if (plan.route) rec.finalUrl = plan.route.to.origin + plan.route.to.pathname;
       list.push(rec);
       if (list.length > LIMITS.records) list.splice(0, list.length - LIMITS.records);
       changed();
       return rec;
     },
-    op(rec, module, state, reason) {
-      const o = rec.ops.find((x) => x.module === module);
+    op(rec, module, state, reason, part) {
+      const o = rec.ops.find((x) => x.module === module && x.part === part);
       if (!o) return;
       o.state = state;
       if (reason) o.reason = reason;
@@ -177,6 +196,14 @@ export function createRuntime(origin: string, initial: Config): Runtime {
       };
     },
     activeBodySlots: () => bodySlots,
+    acquireChild() {
+      if (children >= LIMITS.replayInFlight) return null;
+      children++;
+      let released = false;
+      return () => {
+        if (!released) { released = true; children--; }
+      };
+    },
   };
   return rt;
 }

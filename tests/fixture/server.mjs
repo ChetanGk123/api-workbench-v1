@@ -14,6 +14,7 @@ const ORIGINS = new Set([`http://127.0.0.1:${PORT_A}`, `http://127.0.0.1:${PORT_
 
 /** Hit counters, read by tests from outside the page (never through wrapped transports). */
 const hits = new Map();
+const transfers = new Set();
 const count = (key) => hits.set(key, (hits.get(key) ?? 0) + 1);
 
 export const POLICIES = {
@@ -26,7 +27,7 @@ function cors(req, res) {
   if (o && ORIGINS.has(o)) {
     res.setHeader('access-control-allow-origin', o);
     res.setHeader('access-control-allow-credentials', 'true');
-    res.setHeader('access-control-allow-headers', 'content-type, authorization, x-test, x-signature, x-xsrf-token');
+    res.setHeader('access-control-allow-headers', 'content-type, authorization, x-test, x-signature, x-xsrf-token, x-added, idempotency-key');
     res.setHeader('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, HEAD');
     res.setHeader('access-control-expose-headers', 'x-served-by');
   }
@@ -56,6 +57,7 @@ function handler(name) {
     }
     if (path === '/__reset') {
       hits.clear();
+      transfers.clear();
       return res.end('reset');
     }
 
@@ -124,6 +126,13 @@ function handler(name) {
       }
       return res.end();
     }
+    if (path === '/api/idempotent-transfer') {
+      // Idempotent write: a repeated Idempotency-Key is a duplicate, not a second transfer.
+      const key = req.headers['idempotency-key'] ?? '';
+      const first = !!key && !transfers.has(key);
+      if (first) { transfers.add(key); count('transfer:logical'); }
+      return json(res, { key, duplicate: !!key && !first });
+    }
     if (path === '/api/text') {
       res.setHeader('content-type', 'text/plain; charset=utf-8');
       return res.end(url.searchParams.get('t') ?? 'hello from server');
@@ -141,6 +150,7 @@ function handler(name) {
         'x-test': req.headers['x-test'] ?? null,
         'x-signature': req.headers['x-signature'] ?? null,
         'x-xsrf-token': req.headers['x-xsrf-token'] ?? null,
+        'x-added': req.headers['x-added'] ?? null,
         accept: req.headers.accept ?? null,
       },
       session: cookies(req).session ?? null,

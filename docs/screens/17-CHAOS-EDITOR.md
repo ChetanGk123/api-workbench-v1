@@ -12,7 +12,7 @@ Must not combine incompatible mode/fault, allow infinite timers/copies, coerce m
 
 ## Task S17.1 — Build validated action/mode draft
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** discriminated configuration and hidden-field preservation. **Status:** NOT STARTED. **Depends on:** S00.2/shared matcher, chaos validators.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** discriminated configuration and hidden-field preservation. **Status:** IMPLEMENTED; verification incomplete ([R4 evidence](../R4_REPORT.md)). **Depends on:** S00.2/shared matcher, chaos validators.
 
 1. Bind common fields and endpoint matcher link with exact detached-edit semantics.
 2. Mode/fault choice renders only compatible parameters; changing it previews discarded incompatible configuration and preserves useful draft values.
@@ -23,7 +23,7 @@ Must not combine incompatible mode/fault, allow infinite timers/copies, coerce m
 
 ## Task S17.2 — Implement sampling, duration and corruption controls
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** sampling/reservation and transactional body changes. **Status:** NOT STARTED. **Depends on:** S17.1, random/cursor/patch services.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** sampling/reservation and transactional body changes. **Status:** IMPLEMENTED; verification incomplete ([R4 evidence](../R4_REPORT.md)). **Depends on:** S17.1, random/cursor/patch services.
 
 1. Build probability/seed/hit-budget/activation-duration with finite DATA limits and explicit 0 meanings.
 2. Describe one sample per selected request and seeded ordering; meaningful action revision/activation resets documented state.
@@ -35,7 +35,7 @@ Must not combine incompatible mode/fault, allow infinite timers/copies, coerce m
 
 ## Task S17.3 — Implement explicit bounded replay and native fault integration
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** duplicates, signed freshness and resource ownership. **Status:** NOT STARTED. **Depends on:** S17.2, NETWORK replay/adapters.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** duplicates, signed freshness and resource ownership. **Status:** PARTIAL: exact-copy replay only; signing-recipe refresh of per-attempt fields waits for R6 ([R4 evidence](../R4_REPORT.md)). **Depends on:** S17.2, NETWORK replay/adapters.
 
 1. Limit real replay to primary+at most2 copies under global child budget; show total primary/copy count and gap.
 2. Preserve frozen logical body/idempotency; exact captured replay copies bytes; only declared supported signing recipe refreshes permitted per-attempt fields.

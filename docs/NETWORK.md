@@ -1,6 +1,6 @@
 # Network and lifecycle contract
 
-Status: proposed operation contract. Every capability below needs separate Chrome and Edge evidence. No table entry is a claim that the existing or rebuilt adapter has passed it.
+Status: proposed operation contract. Every capability below needs separate Chrome and Edge evidence. No table entry is a claim that the existing or rebuilt adapter has passed it. R4 implements the rule pipeline in Chrome ([R4 evidence](R4_REPORT.md)); its XHR finding is recorded under "XHR adapter experiment".
 
 The [Fetch Standard](https://fetch.spec.whatwg.org/#fetch-api) defines request/response semantics, the [XHR Standard](https://xhr.spec.whatwg.org/#interface-xmlhttprequest) defines XHR fields/events, and the [Streams Standard](https://streams.spec.whatwg.org/#rs-tee) defines stream splitting. Use native fixture behavior and these standards as the oracle. Bookmark launch, styles and subsequent connections require separate policy checks under [CSP](https://www.w3.org/TR/CSP3/#connect-src); injection success is insufficient.
 
@@ -72,7 +72,7 @@ The current review's arraybuffer route skip is the first regression fixture. Reb
 
 Preferred starting point: retain native XHR objects, constructor/prototype identity and a captured native backing transport. Instrument open/send/header/abort behavior only where needed. Define synthetic delivery as an explicit state/event machine. Do not implement XHR by forwarding everything to fetch.
 
-For real routed/request-edited requests, preserve the native typed response and upload behavior rather than round-tripping through a text-only response representation. If an additional internal native object is needed, forwarding getters/events must avoid duplicate OPENED/progress/terminal sequences. This is a design hypothesis, not proven feasibility.
+For real routed/request-edited requests, preserve the native typed response and upload behavior rather than round-tripping through a text-only response representation. If an additional internal native object is needed, forwarding getters/events must avoid duplicate OPENED/progress/terminal sequences. This is a design hypothesis, not proven feasibility. **R4 result (Chrome 154):** suppressing native events on the page's object with a capture listener at the target does not work, because target listeners run in registration order whether or not they capture. Response edits and real chaos therefore use an internal native XHR owned by Workbench, and the page's object gets one synthetic event sequence carrying the native typed response; upload progress is not forwarded on that path. Route and request-header edits re-open the page's own object, keeping native delivery, with one extra OPENED event.
 
 Test construction/instanceof, `open` validation, `setRequestHeader`, getters, send errors, synchronous send, async success, both listener styles, timeout, abort before/during send, responseURL, all responseTypes, upload events and reuse after a new open. Compare actual event/state traces with a native control request; do not invent one universal event trace for every native case.
 

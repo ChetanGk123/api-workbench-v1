@@ -432,6 +432,15 @@ export function mergeNative(cur: Aggregate, incoming: Aggregate, cands: Candidat
     if (names.has(h.name.toLowerCase())) { r.notes.push(`Global header ${h.name} keeps its current value`); continue; }
     next.profile.globalHeaders.push(h);
   }
+  let seq = Math.max(0, ...next.rules.map((x) => x.seq));
+  for (const rule of inc.rules) {
+    const o = structuredClone(rule);
+    if (next.rules.some((x) => x.id === o.id)) o.id = newId('rule');
+    if (o.endpointId) o.endpointId = epMap.get(o.endpointId) ?? o.endpointId;
+    if (o.endpointId && !next.endpoints.some((e) => e.id === o.endpointId)) delete o.endpointId;
+    o.seq = ++seq;
+    next.rules.push(o);
+  }
   for (const rule of inc.legacyRules) {
     const o = { ...(rule as Record<string, unknown>) };
     if (typeof o.endpointId === 'string') o.endpointId = epMap.get(o.endpointId) ?? o.endpointId;

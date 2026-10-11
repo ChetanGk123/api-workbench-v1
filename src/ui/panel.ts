@@ -1,10 +1,6 @@
 // Workbench panel following design/reference/screens: title bar, six module tabs, Home cards,
-// Mock/Intercept/Route screens with rule editors, traffic lists, request detail and the minimized launcher.
-// R0/R1 rule modules plus R2 Endpoints, Test → Once and Settings; later modules state that they are not in this build.
-import {
-  LIMITS, METHODS, newInterceptRule, newMockRule, newRouteRule, validateInterceptRule, validateMockRule, validateRouteRule,
-  type Config, type Errors, type InterceptRule, type MockRule, type Module, type RouteRule,
-} from '../net/plan';
+// rule modules (Mock/Intercept/Route/Chaos), traffic lists, request detail and the minimized launcher.
+import { LIMITS, type Module } from '../net/plan';
 import type { ReqRecord, Runtime } from '../net/runtime';
 import type { Session } from '../data/store';
 import { h, icon, type IconName } from './dom';
@@ -13,6 +9,7 @@ import { createEndpointsUi } from './endpoints';
 import { createImportUi } from './importer';
 import { clampPos, GEOMETRY_KEY, MIN_SIZE, readGeometry, writeGeometry, type Pos } from './geometry';
 import { checkbox, countBadge, heading, methodBadge, NAME, tile, type Built, type Form, type Kit, type Ret, type Screen } from './kit';
+import { createRulesUi, MOD } from './rules';
 import { createSettingsUi } from './settings';
 import { createTestUi } from './test';
 import themeCss from '../../design/reference/aw-theme.css';
@@ -24,21 +21,6 @@ export interface Panel {
   destroy(): void;
 }
 
-type RuleOf = { mock: MockRule; intercept: InterceptRule; route: RouteRule };
-interface Editor<M extends Module = Module> {
-  module: M;
-  draft: RuleOf[M];
-  base: string;
-  isNew: boolean;
-  errors: Errors;
-  ret: Ret;
-}
-
-const MOD: Record<Module, { title: string; home: string; tab: string; icon: IconName; noun: string; effect: string; empty: string; traffic: string }> = {
-  mock: { title: 'Mock Server', home: 'Mock Server', tab: 'Mock', icon: 'server', noun: 'mock rule', effect: 'requests mocked', empty: 'No matched traffic yet', traffic: 'Matched traffic' },
-  intercept: { title: 'Interceptor', home: 'API Interceptor', tab: 'Intercept', icon: 'shuffle', noun: 'intercept rule', effect: 'responses modified', empty: 'No intercepted traffic yet', traffic: 'Traffic log' },
-  route: { title: 'Page Routing', home: 'Page Routing', tab: 'Route', icon: 'route', noun: 'page rule', effect: 'routed', empty: 'No routed traffic yet', traffic: 'Routed traffic' },
-};
 const TABS: { id: Screen; label: string; icon: IconName }[] = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'test', label: 'Test', icon: 'flask' },
@@ -47,9 +29,7 @@ const TABS: { id: Screen; label: string; icon: IconName }[] = [
   { id: 'route', label: 'Route', icon: 'route' },
   { id: 'chaos', label: 'Chaos', icon: 'flame' },
 ];
-const LATER: Partial<Record<Screen, { title: string; icon: IconName; text: string }>> = {
-  chaos: { title: 'Chaos Engineering', icon: 'flame', text: 'Latency, faults and replay rules are not in this build. They arrive with the rule modules (R4).' },
-};
+const RULE_SCREENS = new Set<Screen>(['mock', 'intercept', 'route', 'chaos']);
 const SHOWN = 50;
 const STEP = 16;
 
@@ -72,8 +52,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
 
   // ---------- view state
   let screen: Screen = 'home';
-  let editor: Editor | null = null;
-  /** Open R2 workspace draft (endpoint, headers, environments…); shares the rule editor's dirty guard. */
+  /** Open draft workspace (rule, endpoint, headers, environments…) with the shared dirty guard. */
   let form: Form | null = null;
   let live: (() => void) | null = null;
   let follow = true;
@@ -136,11 +115,11 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     guard(opts.onClose);
   });
   on(panel, 'keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && (editor || form) && screen !== 'detail' && !dialog.open) {
+    if (e.key === 'Escape' && form && screen !== 'detail' && !dialog.open) {
       // Prevent the browser's Escape default from closing the dialog we are about to open.
       e.preventDefault();
       e.stopPropagation();
-      setTimeout(() => (form ? leaveForm() : leaveEditor()));
+      setTimeout(leaveForm);
     }
   });
   for (const region of [main, foot]) on(region, 'focusin', (e: FocusEvent) => { lastFocus = e.target as HTMLElement; });
@@ -219,19 +198,14 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   on(window, 'resize', () => place());
 
   // ---------- config helpers
-  const cfg = () => rt.config();
-  function setModule<M extends Module>(m: M, patch: Partial<Config[M]>) {
-    rt.setConfig({ ...cfg(), [m]: { ...cfg()[m], ...patch } });
-  }
   function announce(text: string) { status.textContent = text; }
-  const activeModules = () => (['mock', 'intercept', 'route'] as Module[]).filter((m) => cfg()[m].active);
+  const activeModules = () => rulesUi.activeModules();
   /** The tab that owns the current view (an editor or request detail belongs to where it was opened). */
-  const owner = (): Screen => form ? form.owner : editor ? editor.module : screen === 'detail' ? detailRet?.screen ?? 'home' : screen;
+  const owner = (): Screen => form ? form.owner : screen === 'detail' ? detailRet?.screen ?? 'home' : screen;
 
   // ---------- navigation and draft guard
   function go(next: Screen) {
     guard(() => {
-      editor = null;
       form = null;
       screen = next;
       render();
@@ -262,33 +236,27 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     if (focus && !target && focus.startsWith('req-')) announce('That request is not shown in the current list.');
   }
 
-  function leaveEditor() {
-    const ed = editor;
-    if (ed) guard(() => { editor = null; goBack(ed.ret); });
-  }
-
   function leaveForm() {
     const f = form;
     if (f) guard(() => { form = null; goBack(f.ret); });
   }
 
   function dirty() {
-    return (!!editor && JSON.stringify(editor.draft) !== editor.base) || !!form?.dirty();
+    return !!form?.dirty();
   }
 
   function guard(next: () => void) {
     if (!dirty()) return next();
-    const f = form;
-    ask(f ? 'These changes are not saved.' : 'This rule has unsaved changes.', [
+    const f = form!;
+    ask('These changes are not saved.', [
       { label: 'Keep editing', cls: 'aw-out', value: 'keep' },
       { label: 'Discard', cls: 'aw-dst', value: 'discard' },
       { label: 'Save', cls: 'aw-pri', value: 'save' },
     ]).then(async (v) => {
       if (v === 'discard') {
-        editor = null;
         form = null;
         next();
-      } else if (v === 'save' && (f ? await f.save() : commitEditor())) {
+      } else if (v === 'save' && await f.save()) {
         form = null;
         next();
       }
@@ -327,16 +295,13 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     foot.replaceChildren();
     foot.hidden = true;
     const built = form ? form.build()
-      : editor && editor.module !== 'route' ? editorScreen(editor as Editor<'mock' | 'intercept'>)
       : screen === 'home' ? homeScreen()
       : screen === 'test' ? testUi.screen()
       : screen === 'endpoints' ? endpointsUi.screen()
       : screen === 'settings' ? settingsUi.screen()
       : screen === 'import' ? importUi.screen()
-      : screen === 'mock' || screen === 'intercept' ? moduleScreen(screen)
-      : screen === 'route' ? routeScreen()
-      : screen === 'detail' ? detailScreen()
-      : laterScreen(screen);
+      : RULE_SCREENS.has(screen) ? rulesUi.screen(screen as Module)
+      : detailScreen();
     main.replaceChildren(...built.nodes);
     live = built.refresh ?? null;
     main.scrollTop = 0;
@@ -378,20 +343,17 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
           : [b(ps === 'session-only' ? 'Try storage again' : 'Retry save', () => session.retry())]),
         b('Export…', () => go('settings'), 'aw-btn aw-gh aw-sm'));
     }
-    if ((!editor || editor.module === 'route') && !form) {
+    if (!form) {
       foot.hidden = act.length === 0;
       if (act.length) {
         const stop = h('button', { class: 'aw-btn aw-out aw-sm', type: 'button' }, icon('stop', 'aw-i aw-i12'), 'Stop all');
-        stop.addEventListener('click', stopAll);
+        stop.addEventListener('click', () => {
+          rulesUi.stopAll();
+          main.querySelector<HTMLElement>('[data-focus]')?.focus(); // the Stop all button just disappeared
+        });
         foot.replaceChildren(h('span', { class: 'aw-xs aw-mu aw-grow' }, `Active: ${act.map((m) => MOD[m].tab).join(', ')}`), stop);
       } else foot.replaceChildren();
     }
-  }
-
-  function stopAll() {
-    rt.setConfig({ ...cfg(), mock: { ...cfg().mock, active: false }, intercept: { ...cfg().intercept, active: false }, route: { ...cfg().route, active: false } });
-    announce('All modules deactivated. Requests already in progress keep their selected behavior.');
-    main.querySelector<HTMLElement>('[data-focus]')?.focus(); // the Stop all button just disappeared
   }
 
   // Data-only updates: coalesced to one frame; never rebuild inputs.
@@ -419,84 +381,11 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     return active ? h('span', { class: 'aw-bd aw-gr' }, h('span', { class: 'aw-dot aw-g' }), 'Active') : h('span', { class: 'aw-bd' }, h('span', { class: 'aw-dot' }), 'Inactive');
   }
 
-  const effectCount = (m: Module) => rt.records().filter((r) => r.ops.some((o) => o.module === m && o.state === 'applied')).length;
-  const enabledText = (m: Module) => {
-    const r = cfg()[m].rule;
-    return `${r?.enabled ? 1 : 0}/${r ? 1 : 0} rules enabled`;
-  };
-
-  function activateButton(m: Module, outline = false) {
-    const btn = h('button', { class: 'aw-btn', type: 'button' });
-    const hint = h('span', { class: 'aw-hint' });
-    btn.addEventListener('click', () => toggleModule(m));
-    const refresh = () => {
-      const { active, rule } = cfg()[m];
-      btn.className = `aw-btn ${active || outline ? 'aw-out' : 'aw-pri'}`;
-      btn.replaceChildren(icon(active ? 'stop' : 'play', 'aw-i aw-i14'), active ? 'Deactivate' : 'Activate');
-      btn.setAttribute('aria-label', `${active ? 'Deactivate' : 'Activate'} ${MOD[m].tab} module`);
-      const usable = !!rule?.enabled;
-      btn.disabled = !active && !usable;
-      btn.classList.toggle('aw-dis', btn.disabled);
-      hint.textContent = active && !usable ? 'Active, but no enabled rule: traffic is unaffected.' : !active && !rule ? 'Add a rule first.' : !active && !usable ? 'Enable the rule first.' : '';
-    };
-    hint.id = `aw-act-${m}-hint`;
-    btn.setAttribute('aria-describedby', hint.id);
-    return { el: h('div', { class: 'aw-col aw-gap6 aw-start' }, btn, hint), refresh };
-  }
-
-  function toggleModule(m: Module) {
-    const active = !cfg()[m].active;
-    setModule(m, { active });
-    announce(`${MOD[m].tab} module ${active ? 'activated' : 'deactivated'}.`);
-  }
-
-  function ruleSummary(m: Module, r: RuleOf[Module]) {
-    return r.label || `${MOD[m].tab} ${r.path}`;
-  }
-
-  function ruleList(m: Module) {
-    const wrap = h('div', { class: 'aw-col aw-gap8' });
-    const refresh = () => {
-      const r = cfg()[m].rule;
-      if (!r) return wrap.replaceChildren(h('div', { class: 'aw-empty' }, m === 'intercept' ? 'No freestanding intercept rules' : `No ${m === 'route' ? 'page' : 'ad-hoc'} rules`));
-      if (wrap.contains(root.activeElement)) return; // data-only update; keep the focused control
-      const name = ruleSummary(m, r);
-      const meta = h('span', { class: 'aw-row aw-mono aw-meta' }, methodBadge(r.method), h('span', { class: 'aw-tr' }, r.path));
-      if (m === 'mock') meta.append(h('span', { class: 'aw-arrow' }, '→'), h('span', { class: `aw-bd ${(r as MockRule).status < 400 ? 'aw-gr' : 'aw-rd'} aw-h18` }, String((r as MockRule).status)));
-      if (m === 'route') meta.append(h('span', { class: 'aw-arrow' }, '→'), h('span', { class: 'aw-tr' }, (r as RouteRule).destinationOrigin + ((r as RouteRule).pathRewrite || '')));
-      const open = h('button', { class: 'aw-grow aw-col aw-rulebtn', type: 'button', 'aria-label': `Edit ${name}`, 'data-key': `rule-${m}` }, h('span', { class: 'aw-rname' }, name), meta);
-      open.addEventListener('click', () => openEditor(m, false));
-      const del = h('button', { class: 'aw-btn aw-gh aw-ic aw-sm', type: 'button', 'aria-label': `Delete rule ${name}` }, icon('x'));
-      del.addEventListener('click', () => deleteRule(m));
-      const cb = checkbox(`Enable ${name}`, r.enabled, (v) => {
-        setModule(m, { rule: { ...cfg()[m].rule!, enabled: v } } as Partial<Config[Module]>);
-        announce(`Rule ${v ? 'enabled' : 'disabled'}.`);
-      });
-      wrap.replaceChildren(h('div', { class: 'aw-card aw-list' }, h('div', { class: 'aw-row aw-rule' }, cb, open, del)));
-    };
-    return { el: wrap, refresh };
-  }
-
-  function deleteRule(m: Module) {
-    ask(`Delete this ${MOD[m].noun}? Requests already in progress keep their selected behavior.`, [
-      { label: 'Cancel', cls: 'aw-out', value: 'cancel' },
-      { label: 'Delete', cls: 'aw-dst', value: 'delete' },
-    ]).then((v) => {
-      if (v !== 'delete') return;
-      const back = editor?.ret;
-      setModule(m, { rule: null, active: false });
-      editor = null;
-      announce('Rule deleted; module deactivated.');
-      if (back) goBack(back);
-      else { screen = m; render(); }
-    });
-  }
-
   // ---------- traffic lists (shared by Home and module screens)
   const outcomeText = (r: ReqRecord) => r.outcome === 'ok' ? `HTTP ${r.status}` : r.outcome;
   function headline(r: ReqRecord) {
-    const parts = r.ops.filter((o) => o.state !== 'selected').map((o) => `${o.state[0]!.toUpperCase()}${o.state.slice(1)} ${MOD[o.module].tab.toLowerCase()}`);
-    return parts.length ? parts.join(' · ') : r.ops.length ? 'Pending' : 'No rule matched';
+    const parts = r.ops.filter((o) => o.state !== 'selected').map((o) => `${o.state[0]!.toUpperCase()}${o.state.slice(1)} ${MOD[o.module].tab.toLowerCase()}${o.part ? ` ${o.part}` : ''}`);
+    return parts.length ? parts.join(' · ') : r.ops.length ? 'Pending' : r.source === 'replay' ? `Replay copy of #${r.parentId}` : 'No rule matched';
   }
 
   function traffic(filter: (r: ReqRecord) => boolean, empty: string, badge?: HTMLElement, textFilter?: () => string) {
@@ -555,13 +444,16 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   // ---------- R2 workspaces
   const kit: Kit = {
     rt, session, fetchers: opts.fetchers, root, foot, announce, ask, here, go, goBack,
-    openForm(f) { editor = null; form = f; render(); },
+    openForm(f) { form = f; render(); },
     closeForm(focus) { const f = form; form = null; if (f) goBack(f.ret, focus === undefined ? f.ret.focus : focus); },
     leaveForm,
-    runEndpoint(id) { guard(() => { form = null; editor = null; testUi.select(id); screen = 'test'; render(); }); },
+    runEndpoint(id) { guard(() => { form = null; testUi.select(id); screen = 'test'; render(); }); },
     editEndpoint(id, extra) { endpointsUi.openEditor(id, here(), extra as Parameters<typeof endpointsUi.openEditor>[2]); },
     backButton: (to, onClick) => backButton(to, onClick),
   };
+  const rulesUi = createRulesUi(kit, { traffic, statusBadge });
+  rulesUi.sync();
+  const unsubRules = session.subscribe(rulesUi.sync);
   const endpointsUi = createEndpointsUi(kit);
   const testUi = createTestUi(kit);
   const importUi = createImportUi(kit, recorder, { version: opts.version, onProfileChange: () => testUi.stop() });
@@ -579,12 +471,6 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
 
   function homeScreen(): Built {
     const refreshers: (() => void)[] = [];
-    const laterCard = (title: string, iconName: IconName, sub: string, target: Screen) => {
-      const openBtn = h('button', { class: 'aw-btn aw-gh aw-sm', type: 'button', 'aria-label': `Open ${title}` }, 'Open', icon('chevronRight', 'aw-i aw-i14'));
-      openBtn.addEventListener('click', () => go(target));
-      return h('section', { class: 'aw-card aw-cp aw-col aw-gap12' },
-        h('div', { class: 'aw-row aw-gap10' }, tile(iconName), h('div', { class: 'aw-grow' }, h('div', { class: 'aw-row aw-gap8' }, h('span', { class: 'aw-h' }, title), h('span', { class: 'aw-bd' }, 'Not in this build')), h('div', { class: 'aw-xs aw-mu' }, sub)), openBtn));
-    };
     const testerCard = () => {
       const sub = h('div', { class: 'aw-xs aw-mu aw-wrap' });
       const openBtn = h('button', { class: 'aw-btn aw-gh aw-sm', type: 'button', 'aria-label': 'Open API Tester' }, 'Open', icon('chevronRight', 'aw-i aw-i14'));
@@ -605,24 +491,25 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       const badgeSlot = h('span', {});
       const sub = h('div', { class: 'aw-xs aw-mu aw-wrap' });
       const openBtn = h('button', { class: 'aw-btn aw-gh aw-sm', type: 'button', 'aria-label': `Open ${MOD[m].home}` }, 'Open', icon('chevronRight', 'aw-i aw-i14'));
-      // One primary action, chosen from state: New rule → Activate → Deactivate; a disabled rule leads to the list.
+      // One primary action, chosen from state: New rule → Activate → Deactivate; no enabled rule leads to the list.
       const primary = h('button', { class: 'aw-btn aw-sm', type: 'button', 'data-key': `card-${m}` });
       let action: 'new' | 'toggle' | 'manage' = 'new';
       openBtn.addEventListener('click', () => go(m));
-      primary.addEventListener('click', () => action === 'new' ? openEditor(m, true) : action === 'toggle' ? toggleModule(m) : go(m));
+      primary.addEventListener('click', () => action === 'new' ? rulesUi.openEditor(m, null, here()) : action === 'toggle' ? rulesUi.setActive(m, !rulesUi.config().active[m]) : go(m));
       refreshers.push(() => {
-        const { active, rule } = cfg()[m];
-        const n = effectCount(m);
+        const active = rulesUi.config().active[m];
+        const total = rulesUi.rules(m).length, n = rulesUi.enabledCount(m);
+        const applied = rulesUi.counts(m).applied;
         badgeSlot.replaceChildren(statusBadge(active));
-        action = !rule ? 'new' : rule.enabled || active ? 'toggle' : 'manage';
+        action = !total ? 'new' : n || active ? 'toggle' : 'manage';
         const label = action === 'new' ? 'New rule' : action === 'manage' ? 'Manage rules' : active ? 'Deactivate' : 'Activate';
         primary.className = `aw-btn aw-sm ${action === 'toggle' && !active ? 'aw-pri' : 'aw-out'}`;
         primary.replaceChildren(icon(action === 'new' ? 'plus' : action === 'manage' ? 'chevronRight' : active ? 'stop' : 'play', 'aw-i aw-i14'), label);
         primary.setAttribute('aria-label', action === 'new' ? `New ${MOD[m].tab} rule` : action === 'manage' ? `Manage ${MOD[m].tab} rules` : `${label} ${MOD[m].tab} module`);
-        sub.textContent = !rule ? 'No rules yet'
-          : !rule.enabled ? `0 of 1 rules enabled${active ? ' · Module active: traffic unaffected' : ''}`
-          : !active ? '1 enabled rule · Module inactive: traffic unaffected'
-          : `1 enabled rule · ${n} ${MOD[m].effect}`;
+        sub.textContent = !total ? 'No rules yet'
+          : !n ? `0 of ${total} rules enabled${active ? ' · Module active: traffic unaffected' : ''}`
+          : !active ? `${n} enabled rule${n > 1 ? 's' : ''} · Module inactive: traffic unaffected`
+          : `${n} enabled rule${n > 1 ? 's' : ''} · ${applied} ${MOD[m].effect}`;
       });
       return h('section', { class: 'aw-card aw-cp aw-col aw-gap12', 'aria-label': MOD[m].home },
         h('div', { class: 'aw-row aw-gap10' }, tile(MOD[m].icon), h('div', { class: 'aw-grow' }, h('div', { class: 'aw-row aw-gap8' }, h('span', { class: 'aw-h' }, MOD[m].home), badgeSlot), sub), openBtn),
@@ -646,83 +533,17 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       nodes: [
         h('h2', { class: 'aw-sr', tabindex: '-1', 'data-focus': true }, 'Home'),
         testerCard(),
-        moduleCard('mock'), moduleCard('intercept'), moduleCard('route'),
-        laterCard('Chaos Engineering', 'flame', 'Latency and fault rules arrive in a later build', 'chaos'),
+        moduleCard('mock'), moduleCard('intercept'), moduleCard('route'), moduleCard('chaos'),
         h('div', { class: 'aw-col aw-gap8 aw-mt2' }, h('div', { class: 'aw-cap aw-capl' }, 'Quick actions'),
           h('div', { class: 'aw-g3' }, qa('Endpoints', 'book', 'endpoints'), qa('Import', 'import', 'import'), qa('Settings', 'settings', 'settings'))),
         h('div', { class: 'aw-col aw-gap8 aw-mt2' },
           h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl aw-grow' }, h('span', {}, 'Recent activity '), count), h('span', { class: 'aw-chk' }, followCb, 'Follow newest'), clear),
           h('label', { class: 'aw-sr', for: 'aw-filter' }, 'Filter recent activity'), filterIn,
           t.el),
-        h('p', { class: 'aw-hint aw-wrap' }, `Version ${opts.version} · Frame ${rt.origin} · Current-frame Fetch/XHR after launch only. Rules last for this page session; the latest ${LIMITS.records} requests are kept.`),
+        h('p', { class: 'aw-hint aw-wrap' }, `Version ${opts.version} · Frame ${rt.origin} · Current-frame Fetch/XHR after launch only. Rules are saved with the profile; modules start inactive on every launch. The latest ${LIMITS.records} requests are kept.`),
       ],
       refresh: () => refreshers.forEach((f) => f()),
     };
-  }
-
-  function moduleScreen(m: 'mock' | 'intercept'): Built {
-    const badgeSlot = h('span', {});
-    const act = activateButton(m);
-    const rules = ruleList(m);
-    const addBtn = h('button', { class: 'aw-btn aw-dash aw-w', type: 'button' }, icon('plus', 'aw-i aw-i14'), m === 'mock' ? 'Add ad-hoc rule' : 'Add rule');
-    const addHint = h('span', { class: 'aw-hint' }, 'This build supports one rule per module.');
-    addBtn.addEventListener('click', () => openEditor(m, true));
-    const ruleCount = countBadge();
-    const tCount = countBadge();
-    const t = traffic((r) => r.ops.some((o) => o.module === m), MOD[m].empty, tCount);
-    return {
-      nodes: [
-        h('div', { class: 'aw-row aw-gap10' }, tile(MOD[m].icon), heading(MOD[m].title), badgeSlot),
-        h('p', { class: 'aw-hint' }, m === 'mock' ? 'Replies without contacting the server. Mock wins over Route for the same request.' : 'Replaces literal text in finite text Fetch responses (up to 1 MiB). Other responses are delivered unchanged with a reason.'),
-        act.el,
-        h('div', { class: 'aw-col aw-gap8' }, h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl' }, 'Ad-hoc rules'), ruleCount), rules.el, addBtn, addHint),
-        h('div', { class: 'aw-col aw-gap8' }, h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl' }, MOD[m].traffic), tCount), t.el),
-      ],
-      refresh: () => {
-        badgeSlot.replaceChildren(statusBadge(cfg()[m].active));
-        act.refresh();
-        rules.refresh();
-        ruleCount.textContent = cfg()[m].rule ? '1' : '0';
-        addBtn.hidden = !!cfg()[m].rule;
-        addHint.hidden = !cfg()[m].rule;
-        t.refresh();
-      },
-    };
-  }
-
-  function routeScreen(): Built {
-    const summary = h('span', { class: 'aw-xs aw-mu' });
-    const act = activateButton('route', true);
-    const rules = ruleList('route');
-    const formSlot = h('div', {});
-    const addBtn = h('button', { class: 'aw-btn aw-dash aw-w', type: 'button' }, icon('plus', 'aw-i aw-i14'), 'Add page rule');
-    addBtn.addEventListener('click', () => openEditor('route', true));
-    const tCount = countBadge();
-    const t = traffic((r) => r.ops.some((o) => o.module === 'route'), MOD.route.empty, tCount);
-    if (editor?.module === 'route') formSlot.append(routeForm(editor as Editor<'route'>));
-    return {
-      nodes: [
-        h('div', { class: 'aw-row aw-gap10' }, tile('route'), h('div', { class: 'aw-grow' }, heading('Page Routing'), h('div', { class: 'aw-xs aw-mu' }, 'This document’s fetch / XHR'))),
-        h('div', { class: 'aw-row aw-between aw-top' }, summary, act.el),
-        rules.el, formSlot, addBtn,
-        h('div', { class: 'aw-col aw-gap8' }, h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl' }, MOD.route.traffic), tCount), t.el),
-        h('div', { class: 'aw-row aw-hint aw-gap6' }, icon('info', 'aw-i aw-i14'), 'Routing changes the destination only; browser CORS and credential policies still apply.'),
-      ],
-      refresh: () => {
-        summary.replaceChildren(h('span', { class: 'aw-fg' }, enabledText('route').split(' ')[0]!), ' rules enabled · ', h('span', { class: 'aw-fg' }, String(effectCount('route'))), ' requests routed');
-        act.refresh();
-        const editing = editor?.module === 'route';
-        rules.el.hidden = editing;
-        if (!editing) rules.refresh();
-        addBtn.hidden = editing || !!cfg().route.rule;
-        t.refresh();
-      },
-    };
-  }
-
-  function laterScreen(s: Screen): Built {
-    const info = LATER[s]!;
-    return { nodes: [h('div', { class: 'aw-row aw-gap10' }, tile(info.icon), heading(info.title), h('span', { class: 'aw-bd' }, 'Not in this build')), h('div', { class: 'aw-empty aw-wrap' }, info.text)] };
   }
 
   // ---------- request detail (S21.1/S21.2 R1 portion): one record by stable ID, read-only, sends nothing
@@ -733,7 +554,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     let shown = '';
     const refresh = () => {
       const r = rt.records().find((x) => x.id === id);
-      const sig = r ? `${r.outcome}|${r.status}|${r.responseType}|${r.ops.map((o) => o.state + o.reason).join()}|${r.notes.length}` : 'gone';
+      const sig = r ? `${id}|${r.outcome}|${r.status}|${r.responseType}|${r.ops.map((o) => o.state + o.reason).join()}|${r.notes.length}|${rt.records().filter((x) => x.parentId === id).map((x) => x.outcome).join()}` : 'gone';
       if (sig === shown) return; // unchanged: keep any text selection
       shown = sig;
       content.replaceChildren(...(r ? detailBody(r) : [h('div', { class: 'aw-empty aw-wrap' },
@@ -750,9 +571,10 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
 
   function detailBody(r: ReqRecord): Node[] {
     const routed = r.ops.find((o) => o.module === 'route' && o.state === 'applied');
-    const mocked = r.ops.find((o) => o.module === 'mock' && o.state === 'applied');
+    const synthetic = r.provider !== 'network' && r.ops.some((o) => (o.module === 'mock' || o.module === 'chaos') && o.state === 'applied');
+    const by = r.provider === 'mock' ? 'Mock' : 'synthetic chaos';
     const transport = r.transport === 'fetch' ? 'Fetch' : `XHR${r.responseType ? ` · responseType ${r.responseType}` : ''}`;
-    const effective = mocked ? 'Synthetic reply; nothing was sent'
+    const effective = synthetic ? `${by} reply; nothing was sent`
       : routed && r.finalUrl ? `${r.method} ${r.finalUrl}${r.hasQuery ? ' (query preserved)' : ''}`
       : r.outcome === 'pending' && r.ops.some((o) => o.state === 'selected') ? 'Not decided yet'
       : 'Original URL sent';
@@ -760,169 +582,40 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       : `${r.outcome === 'ok' ? `HTTP ${r.status}` : r.outcome === 'error' ? 'Network error (rejected/failed)' : r.outcome === 'aborted' ? 'Aborted by the caller' : 'Timed out'}${r.elapsedMs !== undefined ? ` · ${r.elapsedMs} ms observed (includes Workbench waits; not server time)` : ''}`;
     const dl = (rows: [string, string][]) => h('dl', { class: 'aw-dl' }, ...rows.flatMap(([k, v]) => [h('dt', {}, k), h('dd', { class: 'aw-mono' }, v)]));
     const section = (title: string, ...kids: Node[]) => h('section', { class: 'aw-col aw-gap6', 'aria-label': title }, h('h3', { class: 'aw-cap' }, title), ...kids);
+    const children = rt.records().filter((x) => x.parentId === r.id);
+    const link = (id: number, text: string) => {
+      const b = h('button', { class: 'aw-btn aw-gh aw-sm', type: 'button' }, text);
+      b.addEventListener('click', () => { detailId = id; render(); });
+      return b;
+    };
+    const source = r.source === 'replay' ? `Chaos replay copy of request #${r.parentId}; sent by Workbench, not the page`
+      : `This frame (${rt.origin}) · ${r.source === 'tester' ? 'Test → Once with rules' : 'page'} ${r.transport === 'fetch' ? 'fetch()' : 'XMLHttpRequest'}`;
     return [
-      h('p', { class: 'aw-m0 aw-fg aw-wrap' }, `${headline(r)} · ${r.transport === 'fetch' ? 'Fetch' : `XHR ${r.responseType ?? ''}`.trim()} · ${mocked ? 'synthetic reply' : routed ? 'routed URL sent' : r.outcome === 'pending' ? 'in progress' : 'original URL sent'}`),
+      h('p', { class: 'aw-m0 aw-fg aw-wrap' }, `${headline(r)} · ${r.transport === 'fetch' ? 'Fetch' : `XHR ${r.responseType ?? ''}`.trim()} · ${synthetic ? `${by} reply` : routed ? 'routed URL sent' : r.outcome === 'pending' ? 'in progress' : 'original URL sent'}`),
       section('Overview', dl([
-        ['Source', `This frame (${rt.origin}) · page ${r.transport === 'fetch' ? 'fetch()' : 'XMLHttpRequest'}`],
+        ['Source', source],
         ['Transport', transport],
         ['Original', `${r.method} ${r.url}${r.hasQuery ? ' (query values not stored)' : ''}`],
         ['Effective', effective],
         ['Outcome', outcome],
         ['Config', `Revision ${r.revision}, captured when the request started`],
       ])),
+      ...(r.parentId || children.length ? [section('Replay', h('div', { class: 'aw-row aw-wrapbtns' },
+        ...(r.parentId ? [link(r.parentId, `Open primary #${r.parentId}`)] : []),
+        ...children.map((c) => link(c.id, `Copy #${c.id}: ${c.outcome === 'ok' ? `HTTP ${c.status}` : c.outcome}`))))] : []),
       section('Why',
         r.ops.length ? h('ul', { class: 'aw-ops' }, ...r.ops.map((o) => {
           const tone = o.state === 'applied' ? 'aw-gr' : o.state === 'failed' ? 'aw-rd' : o.state === 'selected' ? 'aw-bl' : 'aw-am';
           return h('li', { class: 'aw-row' },
-            h('span', { class: 'aw-bd' }, MOD[o.module].tab), h('span', { class: `aw-bd ${tone}` }, o.state),
+            h('span', { class: 'aw-bd' }, `${MOD[o.module].tab}${o.part ? ` ${o.part}` : ''}`), h('span', { class: `aw-bd ${tone}` }, o.state),
             h('span', { class: 'aw-grow aw-wrap' }, o.rule ? h('span', { class: 'aw-fg' }, `${o.rule}: `) : '', o.reason),
             h('span', { class: 'aw-xs aw-mu aw-mono' }, o.at === undefined ? 'at start' : `+${o.at} ms`));
-        })) : h('div', { class: 'aw-mu aw-wrap' }, 'No enabled rule in an active module matched; the request passed through natively.'),
+        })) : h('div', { class: 'aw-mu aw-wrap' }, r.source === 'replay' ? 'Replay copies never enter rule selection.' : 'No enabled rule in an active module matched; the request passed through natively.'),
         ...r.notes.map((n) => h('div', { class: 'aw-mu aw-wrap' }, n))),
-      section('Bodies', h('div', { class: 'aw-mu aw-wrap' }, 'Request and response bodies are not captured in this build. Headers are not recorded either; nothing here was stored or re-sent.')),
+      section('Bodies', h('div', { class: 'aw-mu aw-wrap' }, 'Request and response bodies are not kept in request details. Headers are not recorded either; nothing here was stored or re-sent.')),
     ];
   }
 
-  // ---------- editors
-  function openEditor(m: Module, isNew: boolean) {
-    const ret = here();
-    const existing = cfg()[m].rule;
-    const draft = (isNew || !existing ? (m === 'mock' ? newMockRule() : m === 'route' ? newRouteRule() : newInterceptRule()) : { ...existing }) as RuleOf[Module];
-    editor = { module: m, draft, base: JSON.stringify(draft), isNew: isNew || !existing, errors: {}, ret };
-    screen = m;
-    render();
-  }
-
-  /** After a successful save: back to where the editor was opened, focusing the saved rule when it is shown there. */
-  function savedAndBack(ed: Editor) {
-    editor = null;
-    goBack(ed.ret, ed.ret.screen === ed.module ? `rule-${ed.module}` : ed.ret.focus);
-  }
-
-  const errEls = new Map<string, HTMLElement>();
-  function field(id: string, name: string, label: string, input: HTMLElement, hint?: string) {
-    const err = h('span', { class: 'aw-err', id: `${id}-err`, role: 'alert' });
-    errEls.set(name, err);
-    input.setAttribute('aria-describedby', `${id}-err`);
-    return h('div', { class: 'aw-fld' }, h('label', { class: 'aw-lbl', for: id }, label), input, hint ? h('span', { class: 'aw-hint' }, hint) : null, err);
-  }
-  function bindText<T extends object>(draft: T, key: keyof T & string, id: string, o: { mono?: boolean; area?: boolean; placeholder?: string; number?: boolean } = {}) {
-    const el = o.area ? h('textarea', { class: 'aw-ta', id, spellcheck: 'false' }) : h('input', { class: `aw-in${o.mono ? ' aw-mono' : ''}`, id, spellcheck: 'false', inputmode: o.number ? 'numeric' : undefined, placeholder: o.placeholder });
-    el.value = String(draft[key] ?? '');
-    el.addEventListener('input', () => {
-      (draft as Record<string, unknown>)[key] = o.number ? (el.value.trim() === '' ? NaN : Number(el.value)) : el.value;
-    });
-    return el;
-  }
-  function methodSelect(draft: { method: string }) {
-    const sel = h('select', { class: 'aw-in aw-select', id: 'aw-method' }, ...METHODS.map((m) => h('option', { value: m, selected: m === draft.method }, m === '*' ? '* (any)' : m)));
-    sel.addEventListener('change', () => { draft.method = sel.value; });
-    return sel;
-  }
-  function commonFields(ed: Editor) {
-    const d = ed.draft;
-    return [
-      field('aw-label', 'label', 'Label', bindText(d, 'label', 'aw-label', { placeholder: `e.g. ${MOD[ed.module].tab} accounts` })),
-      h('div', { class: 'aw-row aw-top' },
-        h('div', { class: 'aw-w104' }, field('aw-method', 'method', 'Method', methodSelect(d))),
-        h('div', { class: 'aw-grow' }, field('aw-path', 'path', 'URL pathname', bindText(d, 'path', 'aw-path', { mono: true }), `Exact path on ${rt.origin}; any query string matches.`))),
-    ];
-  }
-  function enabledRow(ed: Editor) {
-    return h('div', { class: 'aw-chk' }, checkbox('Rule enabled', ed.draft.enabled, (v) => { ed.draft.enabled = v; }), 'Rule enabled', h('span', { class: 'aw-mu' }, `— does not activate ${MOD[ed.module].tab}`));
-  }
-  function effectHint(m: Module) {
-    return h('p', { class: 'aw-hint aw-wrap aw-m0' }, cfg()[m].active
-      ? `${MOD[m].tab} is active: saving an enabled rule affects the next matching request.`
-      : `${MOD[m].tab} is inactive: saving does not change traffic until you activate it.`);
-  }
-
-  function editorScreen(ed: Editor<'mock' | 'intercept'>): Built {
-    errEls.clear();
-    const body: Node[] = [h('div', { class: 'aw-row' }, backButton(ed.ret.screen, leaveEditor), heading(`${ed.isNew ? 'New' : 'Edit'} ${MOD[ed.module].noun}`)), ...commonFields(ed)];
-    if (ed.module === 'mock') {
-      const d = ed.draft as MockRule;
-      body.push(h('section', { class: 'aw-card aw-cp aw-col aw-gap12' }, h('div', { class: 'aw-h aw-h13' }, 'Response'),
-        h('div', { class: 'aw-g3' },
-          field('aw-status', 'status', 'Status', bindText(d, 'status', 'aw-status', { mono: true, number: true })),
-          field('aw-delay', 'delayMs', 'Delay (ms)', bindText(d, 'delayMs', 'aw-delay', { mono: true, number: true })),
-          field('aw-ct', 'contentType', 'Content-Type', bindText(d, 'contentType', 'aw-ct', { mono: true }))),
-        field('aw-body', 'body', 'Body', bindText(d, 'body', 'aw-body', { area: true }), 'Sent exactly as typed. HEAD, 204 and 304 replies have no body.')));
-    } else {
-      const d = ed.draft as InterceptRule;
-      body.push(h('section', { class: 'aw-card aw-cp aw-col aw-gap12' }, h('div', { class: 'aw-h aw-h13' }, 'Response transform'),
-        h('div', { class: 'aw-g2 aw-gap10' }, field('aw-find', 'find', 'Body find', bindText(d, 'find', 'aw-find', { mono: true })), field('aw-replace', 'replace', 'Replace', bindText(d, 'replace', 'aw-replace', { mono: true }))),
-        h('p', { class: 'aw-hint aw-m0' }, 'Literal text, every occurrence. Binary, streaming, opaque or over-1 MiB responses are delivered unchanged and the reason is shown.')));
-    }
-    body.push(enabledRow(ed), effectHint(ed.module));
-
-    const save = h('button', { class: 'aw-btn aw-pri aw-grow', type: 'button' }, icon('save', 'aw-i aw-i14'), 'Save');
-    save.addEventListener('click', () => { if (commitEditor()) savedAndBack(ed); });
-    const second = ed.isNew
-      ? h('button', { class: 'aw-btn aw-out aw-grow', type: 'button' }, 'Cancel')
-      : h('button', { class: 'aw-btn aw-dst aw-grow', type: 'button' }, icon('trash', 'aw-i aw-i14'), 'Delete');
-    second.addEventListener('click', () => (ed.isNew ? leaveEditor() : deleteRule(ed.module)));
-    foot.replaceChildren(save, second);
-    foot.hidden = false;
-    return { nodes: body };
-  }
-
-  function routeForm(ed: Editor<'route'>): HTMLElement {
-    errEls.clear();
-    const d = ed.draft;
-    const save = h('button', { class: 'aw-btn aw-pri', type: 'button' }, icon('save', 'aw-i aw-i14'), 'Save rule');
-    save.addEventListener('click', () => { if (commitEditor()) savedAndBack(ed); });
-    const cancel = h('button', { class: 'aw-btn aw-out', type: 'button' }, 'Cancel');
-    cancel.addEventListener('click', leaveEditor);
-    const actions = h('div', { class: 'aw-row' }, save, cancel);
-    if (!ed.isNew) {
-      const del = h('button', { class: 'aw-btn aw-dst aw-push', type: 'button' }, icon('trash', 'aw-i aw-i14'), 'Delete');
-      del.addEventListener('click', () => deleteRule('route'));
-      actions.append(del);
-    }
-    const head = h('div', { class: 'aw-row' }, heading(ed.isNew ? 'New page rule' : 'Edit page rule', 'aw-h aw-h13'));
-    if (ed.ret.screen !== 'route') head.prepend(backButton(ed.ret.screen, leaveEditor));
-    return h('section', { class: 'aw-card aw-cp aw-col aw-gap12' },
-      head,
-      h('div', { class: 'aw-g2' },
-        field('aw-label', 'label', 'Label', bindText(d, 'label', 'aw-label', { placeholder: 'e.g. Local wires API' })),
-        field('aw-method', 'method', 'Method (* = any)', methodSelect(d)),
-        field('aw-path', 'path', 'URL pathname', bindText(d, 'path', 'aw-path', { mono: true }), `Exact path on ${rt.origin}`),
-        field('aw-dest', 'destinationOrigin', 'Destination origin', bindText(d, 'destinationOrigin', 'aw-dest', { mono: true, placeholder: 'http://localhost:8080' })),
-        field('aw-rewrite', 'pathRewrite', 'Path rewrite', bindText(d, 'pathRewrite', 'aw-rewrite', { mono: true, placeholder: 'Blank = original path' }))),
-      h('div', { class: 'aw-col aw-gap10 aw-mt2' }, enabledRow(ed)),
-      h('p', { class: 'aw-hint aw-m0 aw-wrap' }, 'The original query is kept. Credentials follow the caller; Authorization is removed when the destination is another origin.'),
-      effectHint('route'),
-      actions);
-  }
-
-  /** Validate and install the draft. Returns false (and shows errors) when invalid. */
-  function commitEditor(): boolean {
-    if (!editor) return true;
-    const ed = editor;
-    const d = { ...ed.draft, label: ed.draft.label.trim(), path: ed.draft.path.trim() } as RuleOf[Module];
-    if (ed.module === 'route') {
-      const r = d as RouteRule;
-      r.destinationOrigin = r.destinationOrigin.trim().replace(/\/$/, '');
-      r.pathRewrite = r.pathRewrite.trim();
-    }
-    const errors = ed.module === 'mock' ? validateMockRule(d as MockRule) : ed.module === 'route' ? validateRouteRule(d as RouteRule) : validateInterceptRule(d as InterceptRule);
-    for (const [k, el] of errEls) el.textContent = errors[k] ?? '';
-    for (const [k, el] of errEls) {
-      const input = root.getElementById(el.id.replace(/-err$/, ''));
-      input?.toggleAttribute('aria-invalid', !!errors[k]);
-    }
-    const first = Object.keys(errors)[0];
-    if (first) {
-      announce(`Not saved: ${errors[first]}`);
-      (root.getElementById(errEls.get(first)!.id.replace(/-err$/, '')) as HTMLElement | null)?.focus();
-      return false;
-    }
-    if (ed.module === 'route') d.label ||= '';
-    setModule(ed.module, { rule: Object.freeze(d) } as Partial<Config[Module]>);
-    announce(`Rule saved.${cfg()[ed.module].active && d.enabled ? ' It applies to the next matching request.' : ''}`);
-    return true;
-  }
 
   // ---------- minimize / restore (Minimize never stops work; the DOM, draft and scroll stay as they are)
   function minimize() {
@@ -956,6 +649,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       testUi.stop();
       unsubscribe();
       unsubSession();
+      unsubRules();
       unsubRecorder();
       recorder.dispose();
       ro.disconnect();

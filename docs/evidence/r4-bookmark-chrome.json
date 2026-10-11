@@ -1,0 +1,119 @@
+{
+  "browser": "chrome",
+  "version": "2.0.0-r4",
+  "bookmarkChars": 386042,
+  "bookmarkSha256": "38b87785586e302f7ef9189be3b91a30c1b3d982248c99e593ac58535d3d5d70",
+  "method": "chrome.bookmarks.create on chrome://bookmarks; restart; CDP Page.navigate on /fixture",
+  "cases": [
+    {
+      "chars": 386042,
+      "sha256": "38b87785586e302f7ef9189be3b91a30c1b3d982248c99e593ac58535d3d5d70",
+      "browserVersion": "154.0.8037.99",
+      "saved": {
+        "ok": true,
+        "chars": 386042
+      },
+      "afterRestart": {
+        "present": true,
+        "chars": 386042,
+        "exact": true
+      },
+      "launch": {
+        "ok": true,
+        "ms": 26,
+        "stayedOnFixture": true,
+        "showsVersion": true
+      }
+    },
+    {
+      "chars": 524283,
+      "sha256": "538e9e4ae222acb844ed4851f1c43e96cc4a7f34f9b88d21901890e957ff4857",
+      "browserVersion": "154.0.8037.99",
+      "saved": {
+        "ok": true,
+        "chars": 524283
+      },
+      "afterRestart": {
+        "present": true,
+        "chars": 524283,
+        "exact": true
+      },
+      "launch": {
+        "ok": true,
+        "ms": 27,
+        "stayedOnFixture": true,
+        "showsVersion": true
+      }
+    },
+    {
+      "chars": 1048571,
+      "sha256": "9a8e8b06a59daee978007a76317a75bdfe19e67f92a64db80bb96c910060c41b",
+      "browserVersion": "154.0.8037.99",
+      "saved": {
+        "ok": true,
+        "chars": 1048571
+      },
+      "afterRestart": {
+        "present": true,
+        "chars": 1048571,
+        "exact": true
+      },
+      "launch": {
+        "ok": true,
+        "ms": 32,
+        "stayedOnFixture": true,
+        "showsVersion": true
+      }
+    },
+    {
+      "chars": 1572859,
+      "sha256": "a8d4efbc27f901411fb37ba6fe0d5816c0571636008142d9ce6c7b9bed51ac81",
+      "browserVersion": "154.0.8037.99",
+      "saved": {
+        "ok": true,
+        "chars": 1572859
+      },
+      "afterRestart": {
+        "present": true,
+        "chars": 1572859,
+        "exact": true
+      },
+      "launch": {
+        "ok": true,
+        "ms": 37,
+        "stayedOnFixture": true,
+        "showsVersion": true
+      }
+    },
+    {
+      "chars": 2097083,
+      "sha256": "d20d5b637ae5558bded4e2ee85f1d09b2e71ea92eb96b21435f605c9cbc8814f",
+      "browserVersion": "154.0.8037.99",
+      "saved": {
+        "ok": true,
+        "chars": 2097083
+      },
+      "afterRestart": {
+        "crashed": "page.goto: Page crashed"
+      }
+    },
+    {
+      "chars": 2097211,
+      "sha256": "04d735842d77f4a5880ac74cb4b0227309ca080912c94602c2a63a0effdd7b32",
+      "browserVersion": "154.0.8037.99",
+      "saved": {
+        "ok": true,
+        "chars": 2097211
+      },
+      "afterRestart": {
+        "present": true,
+        "chars": 2097211,
+        "exact": true
+      },
+      "launch": {
+        "ok": false,
+        "error": "locator.waitFor: Timeout 15000ms exceeded."
+      }
+    }
+  ]
+}

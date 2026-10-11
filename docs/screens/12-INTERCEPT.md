@@ -12,7 +12,7 @@ Do not label selection as modified response, hide skipped arraybuffer operations
 
 ## Task S12.1 — Implement rules and activation navigation
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** shared rule-list pattern. **Status:** NOT STARTED. **Depends on:** S00, shared rule commands.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** shared rule-list pattern. **Status:** IMPLEMENTED for R4 (no breakpoint flags until R5) ([R4 evidence](../R4_REPORT.md)). **Depends on:** S00, shared rule commands.
 
 1. Render enabled/active state, linked/ad-hoc groups and concise operation/breakpoint summary.
 2. New rule/From endpoint open detached drafts with matcher/link provenance; Delete previews active/link effects.
@@ -23,7 +23,7 @@ Do not label selection as modified response, hide skipped arraybuffer operations
 
 ## Task S12.2 — Render operation diagnostics and bounded traffic
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** selected vs changed vs skipped accounting. **Status:** NOT STARTED. **Depends on:** operation records, S21, DATA cache.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** selected vs changed vs skipped accounting. **Status:** IMPLEMENTED; the optional stored response-body display setting is not built ([R4 evidence](../R4_REPORT.md)). **Depends on:** operation records, S21, DATA cache.
 
 1. Derive per-operation status/reason and bounded summaries by request ID; include original/final URL and transport/body state.
 2. Header-only edit can be applied while body transform skipped; render both rather than one misleading success/failure.
@@ -34,7 +34,7 @@ Do not label selection as modified response, hide skipped arraybuffer operations
 
 ## Task S12.3 — Integrate pause queue and lifecycle
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** pending work must remain findable and settle safely. **Status:** NOT STARTED. **Depends on:** S14 and NETWORK pause registry.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** pending work must remain findable and settle safely. **Status:** NOT STARTED (R5). **Depends on:** S14 and NETWORK pause registry.
 
 1. Render paused count/stage/deadline/caller status with stable request IDs; open exact pause workspace.
 2. Continue all takes one queue snapshot and continues each eligible request once; arriving new pauses stay visible.

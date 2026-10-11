@@ -97,9 +97,9 @@ export function redactText(text: string, contentType: string, c: Pick<Capture, '
 const TEXTUAL = /^(text\/|application\/(json|xml|javascript|x-www-form-urlencoded|graphql)\b|[^;]*\+(json|xml)\b)/i;
 export const textualType = (ct: string) => TEXTUAL.test(ct.trim());
 
-export function newCapture(rec: { id: number; transport: 'fetch' | 'xhr'; source: 'page' | 'tester' }, method: string, url: URL): Capture {
+export function newCapture(rec: { id: number; transport: 'fetch' | 'xhr'; source: string }, method: string, url: URL): Capture {
   const c: Capture = {
-    id: rec.id, at: Date.now(), transport: rec.transport, source: rec.source, method, url: url.origin + url.pathname,
+    id: rec.id, at: Date.now(), transport: rec.transport, source: rec.source === 'tester' ? 'tester' : 'page', method, url: url.origin + url.pathname,
     query: [], headers: [], credentials: 'same-origin', body: { kind: 'none' }, redacted: [], notes: [], outcome: 'pending', resHeaders: [],
   };
   c.query = cleanPairs(url.searchParams, c, 'Query');

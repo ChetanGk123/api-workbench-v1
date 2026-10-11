@@ -116,6 +116,106 @@ export interface Plan {
   onFailure: 'continue' | 'stop';
 }
 
+// ---------- rules (R4). Runtime-only state (activation, cursors, samples, budgets used) is never stored.
+
+export const RULE_KINDS = ['mock', 'intercept', 'route', 'chaos'] as const;
+export type RuleKind = (typeof RULE_KINDS)[number];
+
+export interface Matcher {
+  method: Method | '*';
+  /** '' = the launch frame's origin. */
+  origin: string;
+  /** Pathname, exact or glob: `*` stays inside a segment, `**` crosses segments. */
+  path: string;
+  /** Each pair must be present; '' value = key present with any value; a repeated key matches if any value equals. */
+  query: Pair[];
+  /** Case-insensitive names; '' value = header present. */
+  headers: Pair[];
+  /** Literal text in a complete bounded text request body; '' = no body condition. */
+  bodyContains: string;
+}
+
+interface RuleBase {
+  id: string;
+  label: string;
+  /** Linked endpoint: its method and URL replace the stored matcher's while the link exists. */
+  endpointId?: string;
+  enabled: boolean;
+  priority: number;
+  /** Creation sequence: equal priorities resolve by it, then by ID. */
+  seq: number;
+  /** Action revision: bumped by a meaningful edit; resets sequence cursors and chaos budgets. */
+  revision: number;
+  matcher: Matcher;
+}
+
+export interface MockSlot { id: string; status: number; headers: Pair[]; body: string; delayMs: number; fault: 'none' | 'network-error' | 'timeout' }
+export interface MockRule extends RuleBase {
+  kind: 'mock';
+  mode: 'static' | 'sequence';
+  slots: MockSlot[];
+  /** After the last slot. Never falls back to real traffic. */
+  exhaustion: 'repeat-last' | 'loop' | 'network-error';
+}
+
+/** RFC 6902 operation. "Nullify" in the UI is replace with null. */
+export interface PatchOp { op: 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test'; path: string; from?: string; value?: unknown }
+export interface Transform {
+  setHeaders: Pair[];
+  removeHeaders: string[];
+  /** Applied in order to an isolated copy; committed only if every operation succeeds. */
+  patch: PatchOp[];
+  /** Literal text, no regular expressions. Runs after the patch. */
+  replace: { find: string; with: string; scope: 'first' | 'all' } | null;
+  /** Response only: 0 keeps the original status. */
+  status: number;
+}
+export interface InterceptRule extends RuleBase { kind: 'intercept'; request: Transform; response: Transform }
+
+export interface RouteRule extends RuleBase {
+  kind: 'route';
+  destinationOrigin: string;
+  /** '' keeps the original path; otherwise an exact path or one trailing `/**` capture. */
+  pathRewrite: string;
+  /** 'caller' keeps the request's own credentials mode. */
+  credentials: 'caller' | Credentials;
+  /** A cross-origin route removes Authorization unless this is set for this destination. */
+  keepAuthorization: boolean;
+}
+
+export type ChaosFault =
+  | { kind: 'status'; status: number; body: string }
+  | { kind: 'latency'; delayMs: number }
+  | { kind: 'random-latency'; minMs: number; maxMs: number }
+  | { kind: 'network-error' }
+  | { kind: 'timeout'; timeoutMs: number }
+  | { kind: 'malformed-json'; text: string }
+  | { kind: 'corrupt-json'; patch: PatchOp[] }
+  | { kind: 'replay'; copies: number; gapMs: number };
+export type ChaosFaultKind = ChaosFault['kind'];
+/** Synthetic: no upstream request. Real: the request is sent and upstream effects can occur. */
+export const CHAOS_MODES: Record<ChaosFaultKind, readonly ('synthetic' | 'real')[]> = {
+  status: ['synthetic', 'real'], 'network-error': ['synthetic', 'real'], timeout: ['synthetic', 'real'], 'malformed-json': ['synthetic', 'real'],
+  latency: ['real'], 'random-latency': ['real'], 'corrupt-json': ['real'], replay: ['real'],
+};
+export interface ChaosRule extends RuleBase {
+  kind: 'chaos';
+  mode: 'synthetic' | 'real';
+  fault: ChaosFault;
+  /** 0–100, sampled once per selected request. */
+  probability: number;
+  /** '' = unseeded. */
+  seed: string;
+  /** Faults applied before the rule stops being selected; 0 = no cap. */
+  budget: number;
+  /** Real mode only: wait before dispatch. */
+  preDelayMs: number;
+  /** Stop selecting this long after activation or a meaningful edit; 0 = no limit. */
+  durationMs: number;
+}
+
+export type Rule = MockRule | InterceptRule | RouteRule | ChaosRule;
+
 export interface Profile {
   id: string;
   name: string;
@@ -137,7 +237,8 @@ export interface Aggregate {
   plans: Plan[];
   authContexts: AuthContext[];
   signingRecipes: SigningRecipe[];
-  /** Schema 1 rules kept as data, not executable, until rule modules (R4) read them. */
+  rules: Rule[];
+  /** Schema 1 rules that could not be converted: kept as data, never executed. */
   legacyRules: unknown[];
 }
 
@@ -155,6 +256,15 @@ export const BOUNDS = {
   poll: { attempts: 10, minIntervalMs: 250, deadlineMs: 30_000 },
   refreshDeadlineMs: 5_000,
   freshnessMs: 300_000,
+  rules: 500,
+  priority: 1000,
+  slots: 50,
+  patchOps: 50,
+  ruleDelayMs: 60_000,
+  durationMs: 3_600_000,
+  budget: 100_000,
+  replayCopies: 2,
+  replayGapMs: 10_000,
 } as const;
 
 export const FORBIDDEN_HEADERS = new Set([
@@ -533,6 +643,313 @@ function profile(v: V, x: unknown, p: string): Profile {
   };
 }
 
+// ---------- rules
+
+export const BODYLESS = new Set([204, 205, 304]);
+const POINTER_BAD = new Set(['__proto__', 'constructor', 'prototype']);
+/** Problem with a JSON Pointer, or null. Prototype-chain segments are refused. */
+export function pointerProblem(p: string): string | null {
+  if (p === '') return null;
+  if (!p.startsWith('/')) return 'A JSON Pointer starts with / (or is empty for the whole value)';
+  if (/~[^01]/.test(p) || p.endsWith('~')) return 'Use ~0 for ~ and ~1 for /';
+  for (const seg of p.slice(1).split('/')) if (POINTER_BAD.has(seg.replace(/~1/g, '/').replace(/~0/g, '~'))) return `"${seg}" is not allowed in a path`;
+  return null;
+}
+
+/** Glob path problem, or null. */
+export function globProblem(p: string): string | null {
+  if (!p.startsWith('/')) return 'Path must start with /';
+  if (/[?#\s]/.test(p)) return 'No query, fragment or spaces; use query conditions instead';
+  if (p.includes('***')) return 'Use * (one segment) or ** (any segments)';
+  return null;
+}
+
+/** Route rewrite: exact path, or one trailing /** capture into a matcher that also ends in /**. */
+export function rewriteProblem(matchPath: string, rewrite: string): string | null {
+  if (!rewrite) return null;
+  if (!rewrite.startsWith('/') || /[?#\s]/.test(rewrite)) return 'Enter a path starting with / (no query, fragment or spaces)';
+  if (!rewrite.includes('*')) return null;
+  const doubles = (s: string) => (s.match(/\*\*/g) ?? []).length;
+  if (!rewrite.endsWith('/**') || doubles(rewrite) !== 1 || rewrite.slice(0, -3).includes('*')) return 'A rewrite is an exact path or one trailing /** capture';
+  if (!matchPath.endsWith('/**') || doubles(matchPath) !== 1) return 'A trailing /** rewrite needs a matcher path that also ends in /**';
+  return null;
+}
+
+function matcher(v: V, x: unknown, p: string): Matcher {
+  const o = v.obj(x, p);
+  const origin = v.str(o, 'origin', p, { max: 2048 });
+  if (origin) { const r = validateOrigin(origin); if (!r.ok) v.err(`${p}.origin`, r.error); }
+  const path = v.str(o, 'path', p, { min: 1, max: 2048 });
+  const gp = path && globProblem(path);
+  if (gp) v.err(`${p}.path`, gp);
+  const hdrs = pairs(v, o.headers, `${p}.headers`);
+  hdrs.forEach(([n], i) => { if (n && !TOKEN.test(n)) v.err(`${p}.headers.${i}`, 'Header names are letters, digits and - _ . etc.'); });
+  return {
+    method: v.oneOf(o, 'method', p, ['*', ...METHODS] as const),
+    origin: origin ? (validateOrigin(origin) as { origin?: string }).origin ?? origin : '',
+    path,
+    query: pairs(v, o.query, `${p}.query`),
+    headers: hdrs,
+    bodyContains: v.str(o, 'bodyContains', p, { max: 1024 }),
+  };
+}
+
+function patchOps(v: V, x: unknown, p: string): PatchOp[] {
+  return v.arr(x, p, BOUNDS.patchOps).map((raw, i) => {
+    const q = `${p}.${i}`;
+    const o = v.obj(raw, q);
+    const op = v.oneOf(o, 'op', q, ['add', 'remove', 'replace', 'move', 'copy', 'test'] as const);
+    const path = v.str(o, 'path', q, { max: 1024 });
+    const pp = pointerProblem(path);
+    if (pp) v.err(`${q}.path`, pp);
+    const out: PatchOp = { op, path };
+    if (op === 'move' || op === 'copy') {
+      out.from = v.str(o, 'from', q, { max: 1024 });
+      const fp = pointerProblem(out.from);
+      if (fp) v.err(`${q}.from`, fp);
+    }
+    if (op === 'add' || op === 'replace' || op === 'test') {
+      if (!Object.hasOwn(o, 'value')) v.err(`${q}.value`, 'A value is required');
+      else {
+        try { out.value = JSON.parse(JSON.stringify(o.value)); } catch { v.err(`${q}.value`, 'Value must be JSON'); }
+        if (out.value === undefined) v.err(`${q}.value`, 'Value must be JSON');
+      }
+    }
+    return out;
+  });
+}
+
+function responseHeaderPairs(v: V, x: unknown, p: string): Pair[] {
+  const list = pairs(v, x, p);
+  list.forEach(([n, val], i) => {
+    if (n && !TOKEN.test(n)) v.err(`${p}.${i}`, 'Header names are letters, digits and - _ . etc.');
+    else if (/^set-cookie2?$/i.test(n)) v.err(`${p}.${i}`, 'Set-Cookie cannot be set by a script reply; the browser cookie jar is unchanged');
+    if (/[\r\n\0]/.test(val)) v.err(`${p}.${i}`, 'Header values cannot contain line breaks');
+  });
+  return list;
+}
+
+function transform(v: V, x: unknown, p: string, stage: 'request' | 'response'): Transform {
+  const o = v.obj(x, p);
+  const set = stage === 'response' ? responseHeaderPairs(v, o.setHeaders, `${p}.setHeaders`) : pairs(v, o.setHeaders, `${p}.setHeaders`);
+  if (stage === 'request') set.forEach(([n, val], i) => {
+    if (n && !TOKEN.test(n)) v.err(`${p}.setHeaders.${i}`, 'Header names are letters, digits and - _ . etc.');
+    else if (n && forbiddenHeader(n)) v.err(`${p}.setHeaders.${i}`, `The browser does not let scripts set ${n}`);
+    if (/[\r\n\0]/.test(val)) v.err(`${p}.setHeaders.${i}`, 'Header values cannot contain line breaks');
+  });
+  const removeHeaders = v.arr(o.removeHeaders, `${p}.removeHeaders`, BOUNDS.rows).map((n, i) => {
+    if (typeof n !== 'string' || !TOKEN.test(n)) { v.err(`${p}.removeHeaders.${i}`, 'Enter a header name'); return ''; }
+    return n;
+  });
+  let replace: Transform['replace'] = null;
+  if (o.replace !== null && o.replace !== undefined) {
+    const r = v.obj(o.replace, `${p}.replace`);
+    replace = { find: v.str(r, 'find', `${p}.replace`, { min: 1, max: 4096 }), with: v.str(r, 'with', `${p}.replace`, { max: 65536 }), scope: v.oneOf(r, 'scope', `${p}.replace`, ['first', 'all'] as const) };
+  }
+  const status = v.int(o, 'status', p, 0, 599);
+  if (stage === 'request' && status) v.err(`${p}.status`, 'Status applies to responses only');
+  else if (status && status < 200) v.err(`${p}.status`, 'Status is 0 (keep) or 200–599');
+  return { setHeaders: set, removeHeaders, patch: patchOps(v, o.patch, `${p}.patch`), replace, status };
+}
+
+function fault(v: V, x: unknown, p: string): ChaosFault {
+  const o = v.obj(x, p);
+  const kind = v.oneOf(o, 'kind', p, Object.keys(CHAOS_MODES) as ChaosFaultKind[]);
+  const ms = (k: string, min = 0) => v.int(o, k, p, min, BOUNDS.ruleDelayMs);
+  switch (kind) {
+    case 'status': {
+      const status = v.int(o, 'status', p, 200, 599);
+      const body = v.str(o, 'body', p, { max: 65536 });
+      if (BODYLESS.has(status) && body) v.err(`${p}.body`, `A ${status} reply has no body`);
+      return { kind, status, body };
+    }
+    case 'latency': return { kind, delayMs: ms('delayMs', 1) };
+    case 'random-latency': {
+      const minMs = ms('minMs'), maxMs = ms('maxMs', 1);
+      if (minMs > maxMs) v.err(`${p}.maxMs`, 'Maximum must be at least the minimum');
+      return { kind, minMs, maxMs };
+    }
+    case 'network-error': return { kind };
+    case 'timeout': return { kind, timeoutMs: ms('timeoutMs', 1) };
+    case 'malformed-json': return { kind, text: v.str(o, 'text', p, { min: 1, max: 65536 }) };
+    case 'corrupt-json': {
+      const patch = patchOps(v, o.patch, `${p}.patch`);
+      if (!patch.length) v.err(`${p}.patch`, 'Add at least one field change');
+      return { kind, patch };
+    }
+    case 'replay': return { kind, copies: v.int(o, 'copies', p, 1, BOUNDS.replayCopies), gapMs: v.int(o, 'gapMs', p, 0, BOUNDS.replayGapMs) };
+  }
+}
+
+function validateRule(v: V, x: unknown, p: string): Rule {
+  const o = v.obj(x, p);
+  const kind = v.oneOf(o, 'kind', p, RULE_KINDS);
+  const base = {
+    id: v.id(o, 'id', p),
+    label: v.str(o, 'label', p, { max: BOUNDS.name }),
+    enabled: v.bool(o, 'enabled', p),
+    priority: v.int(o, 'priority', p, -BOUNDS.priority, BOUNDS.priority),
+    seq: v.int(o, 'seq', p, 0, Number.MAX_SAFE_INTEGER),
+    revision: v.int(o, 'revision', p, 1, Number.MAX_SAFE_INTEGER),
+    matcher: matcher(v, o.matcher, `${p}.matcher`),
+    ...(o.endpointId !== undefined && { endpointId: v.id(o, 'endpointId', p) }),
+  };
+  switch (kind) {
+    case 'mock': {
+      const mode = v.oneOf(o, 'mode', p, ['static', 'sequence'] as const);
+      const slots = v.arr(o.slots, `${p}.slots`, BOUNDS.slots).map((raw, i): MockSlot => {
+        const q = `${p}.slots.${i}`;
+        const s = v.obj(raw, q);
+        const status = v.int(s, 'status', q, 200, 599);
+        const body = v.str(s, 'body', q, { max: BOUNDS.bodyBytes });
+        if (utf8Bytes(body) > BOUNDS.bodyBytes) v.err(`${q}.body`, `Body is limited to ${BOUNDS.bodyBytes} bytes`);
+        const f = v.oneOf(s, 'fault', q, ['none', 'network-error', 'timeout'] as const);
+        if (f === 'none' && BODYLESS.has(status) && body) v.err(`${q}.body`, `A ${status} reply has no body`);
+        return { id: v.id(s, 'id', q), status, headers: responseHeaderPairs(v, s.headers, `${q}.headers`), body, delayMs: v.int(s, 'delayMs', q, 0, BOUNDS.ruleDelayMs), fault: f };
+      });
+      if (!slots.length) v.err(`${p}.slots`, 'Add a reply');
+      if (mode === 'static' && slots.length > 1) v.err(`${p}.slots`, 'A static rule has exactly one reply');
+      return { ...base, kind, mode, slots, exhaustion: v.oneOf(o, 'exhaustion', p, ['repeat-last', 'loop', 'network-error'] as const) };
+    }
+    case 'intercept': {
+      const r: InterceptRule = { ...base, kind, request: transform(v, o.request, `${p}.request`, 'request'), response: transform(v, o.response, `${p}.response`, 'response') };
+      const empty = (t: Transform) => !t.setHeaders.length && !t.removeHeaders.length && !t.patch.length && !t.replace && !t.status;
+      if (empty(r.request) && empty(r.response)) v.err(`${p}.response`, 'Add at least one request or response change');
+      return r;
+    }
+    case 'route': {
+      const dest = v.str(o, 'destinationOrigin', p, { min: 1, max: 2048 });
+      const d = dest ? validateOrigin(dest) : null;
+      if (d && !d.ok) v.err(`${p}.destinationOrigin`, d.error);
+      const pathRewrite = v.str(o, 'pathRewrite', p, { max: 2048 });
+      const rp = rewriteProblem(base.matcher.path, pathRewrite);
+      if (rp) v.err(`${p}.pathRewrite`, rp);
+      return {
+        ...base, kind, destinationOrigin: d?.ok ? d.origin : dest, pathRewrite,
+        credentials: v.oneOf(o, 'credentials', p, ['caller', ...CREDENTIALS] as const),
+        keepAuthorization: v.bool(o, 'keepAuthorization', p),
+      };
+    }
+    case 'chaos': {
+      const mode = v.oneOf(o, 'mode', p, ['synthetic', 'real'] as const);
+      const f = fault(v, o.fault, `${p}.fault`);
+      if (!CHAOS_MODES[f.kind].includes(mode)) {
+        v.err(`${p}.mode`, f.kind === 'latency' || f.kind === 'random-latency'
+          ? 'Synthetic latency has no reply to delay: use Real mode, or a Mock rule with a delay'
+          : `${f.kind === 'replay' ? 'Replay' : 'Corrupting JSON'} needs a real request; use Real mode`);
+      }
+      const preDelayMs = v.int(o, 'preDelayMs', p, 0, BOUNDS.ruleDelayMs);
+      if (preDelayMs && mode === 'synthetic') v.err(`${p}.preDelayMs`, 'A pre-dispatch delay applies to real traffic only');
+      return {
+        ...base, kind, mode, fault: f,
+        probability: v.int(o, 'probability', p, 0, 100),
+        seed: v.str(o, 'seed', p, { max: 64 }),
+        budget: v.int(o, 'budget', p, 0, BOUNDS.budget),
+        preDelayMs,
+        durationMs: v.int(o, 'durationMs', p, 0, BOUNDS.durationMs),
+      };
+    }
+  }
+}
+
+/** One rule draft, validated in the context of its profile (endpoint link, unique ID). Paths are relative to the rule. */
+export function validateRuleIn(agg: Aggregate, r: Rule): Diag[] {
+  const res = validateAggregate({ ...agg, rules: [...agg.rules.filter((x) => x.id !== r.id), r] });
+  if (res.ok) return [];
+  const prefix = `rules.${agg.rules.filter((x) => x.id !== r.id).length}.`;
+  return res.errors.filter((d) => d.path.startsWith(prefix)).map((d) => ({ path: d.path.slice(prefix.length), message: d.message }));
+}
+
+/** No default path: a rule never starts out matching a broad set of requests. */
+const emptyMatcher = (): Matcher => ({ method: '*', origin: '', path: '', query: [], headers: [], bodyContains: '' });
+export const emptyTransform = (): Transform => ({ setHeaders: [], removeHeaders: [], patch: [], replace: null, status: 0 });
+export const newSlot = (): MockSlot => ({ id: newId('slot'), status: 200, headers: [['Content-Type', 'application/json']], body: '{}', delayMs: 0, fault: 'none' });
+
+/** New rule draft with defaults; `seq` follows the highest stored one. */
+export function newRule<K extends RuleKind>(agg: Aggregate, kind: K): Extract<Rule, { kind: K }> {
+  const base = { id: newId('rule'), label: '', enabled: true, priority: 0, seq: Math.max(0, ...agg.rules.map((r) => r.seq)) + 1, revision: 1, matcher: emptyMatcher() };
+  const by: { [k in RuleKind]: Extract<Rule, { kind: k }> } = {
+    mock: { ...base, kind: 'mock', mode: 'static', slots: [newSlot()], exhaustion: 'repeat-last' },
+    intercept: { ...base, kind: 'intercept', request: emptyTransform(), response: emptyTransform() },
+    route: { ...base, kind: 'route', destinationOrigin: '', pathRewrite: '', credentials: 'caller', keepAuthorization: false },
+    chaos: { ...base, kind: 'chaos', mode: 'synthetic', fault: { kind: 'status', status: 503, body: '' }, probability: 100, seed: '', budget: 0, preDelayMs: 0, durationMs: 0 },
+  };
+  return by[kind] as Extract<Rule, { kind: K }>;
+}
+
+/**
+ * The matcher fields a linked endpoint supplies: method, origin (active environment; '' = this page)
+ * and path, with each {{expression}} as a one-segment `*`. An unmapped host key supplies no origin.
+ */
+export function linkedMatcher(agg: Aggregate, e: Endpoint): Pick<Matcher, 'method' | 'path'> & Partial<Pick<Matcher, 'origin'>> {
+  const r = e.request;
+  const raw = r.url.replace(/\{\{[^}]*\}\}/g, '*').split(/[?#]/)[0]!;
+  if (r.hostKey === null) {
+    try { const u = new URL(raw); return { method: r.method, origin: u.origin, path: decodeURI(u.pathname) || '/' }; } catch { return { method: r.method, path: raw || '/' }; }
+  }
+  const o = agg.profile.environments[agg.profile.activeEnvironment]?.[r.hostKey];
+  return { method: r.method, path: raw || '/', ...(o !== undefined && { origin: o }) };
+}
+
+/** Fields whose change is cosmetic: they keep cursors and budgets. Everything else is an action revision. */
+export const meaningfulRuleChange = (a: Rule, b: Rule) => {
+  const strip = ({ label: _l, enabled: _e, revision: _r, ...rest }: Rule) => JSON.stringify(rest);
+  return strip(a) !== strip(b);
+};
+
+/**
+ * Schema 1 rules → schema 2. Each one is converted and validated on its own; a rule that does not
+ * convert stays in `legacyRules` with a note. v1 relative URLs matched any origin; here they are
+ * scoped to the launch frame, which the note says.
+ */
+export function rulesFromV1(legacy: unknown[], endpointIds: Set<string>): { rules: Rule[]; rest: unknown[]; notes: string[] } {
+  const rules: Rule[] = [];
+  const rest: unknown[] = [];
+  const notes: string[] = [];
+  const kv = (s: unknown): Pair[] => typeof s === 'string' && s.trim() ? [...new URLSearchParams(s.trim())] : [];
+  const lines = (s: unknown): Pair[] => typeof s === 'string' ? s.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => { const i = l.indexOf(':'); return (i > 0 ? [l.slice(0, i).trim(), l.slice(i + 1).trim()] : [l, '']) as Pair; }) : [];
+  const xform = (t: unknown): Transform => {
+    const o = isObj(t) ? t : {};
+    const b = isObj(o.body) && typeof o.body.find === 'string' && o.body.find ? { find: o.body.find, with: String(o.body.replace ?? ''), scope: o.body.scope === 'first' ? 'first' as const : 'all' as const } : null;
+    return { setHeaders: lines(o.setHeaders), removeHeaders: typeof o.removeHeaders === 'string' ? o.removeHeaders.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : [], patch: Array.isArray(o.patch) ? o.patch as PatchOp[] : [], replace: b, status: typeof o.status === 'number' ? o.status : 0 };
+  };
+  let relative = 0;
+  legacy.forEach((raw, i) => {
+    const r = isObj(raw) ? raw : {};
+    const m = isObj(r.matcher) ? r.matcher : {};
+    const url = String(m.url ?? '');
+    let origin = '', path = url.split(/[?#]/)[0] || '/';
+    if (/^https?:\/\//i.test(url)) { try { const u = new URL(url); origin = u.origin; path = u.pathname; } catch { /* left invalid; validation reports it */ } }
+    else relative++;
+    const method = String(m.method ?? '*').toUpperCase();
+    const base = {
+      id: typeof r.id === 'string' ? r.id : newId('rule'), label: String(r.label ?? ''), enabled: r.enabled === true,
+      priority: typeof r.priority === 'number' ? r.priority : 0, seq: typeof r.seq === 'number' ? r.seq : i + 1, revision: 1,
+      matcher: { method, origin, path, query: kv(m.query), headers: kv(m.headers), bodyContains: String(m.bodyContains ?? '') },
+      ...(typeof r.endpointId === 'string' && endpointIds.has(r.endpointId) && { endpointId: r.endpointId }),
+    };
+    let out: unknown;
+    if (r.kind === 'mock') out = { ...base, kind: 'mock', mode: r.mode, exhaustion: r.exhaustion, slots: arrOf(r.slots).map((s) => ({ id: newId('slot'), status: s.status, headers: lines(s.headers), body: s.body ?? '', delayMs: s.delayMs ?? 0, fault: s.fault ?? 'none' })) };
+    else if (r.kind === 'intercept') out = { ...base, kind: 'intercept', request: xform(r.request), response: xform(r.response) };
+    else if (r.kind === 'route') {
+      const mo = typeof r.matchOrigin === 'string' && r.matchOrigin ? r.matchOrigin : origin;
+      // v1 blank rewrite + "preserve path" off meant "/".
+      out = { ...base, matcher: { ...base.matcher, origin: mo }, kind: 'route', destinationOrigin: r.destinationOrigin, pathRewrite: r.pathRewrite || (r.preservePath === false ? '/' : ''), credentials: r.credentials === 'same-origin' || r.credentials === 'include' || r.credentials === 'omit' ? r.credentials : 'caller', keepAuthorization: r.keepAuthorization === true };
+    } else if (r.kind === 'chaos') {
+      const f = isObj(r.fault) ? { ...r.fault } : {};
+      if (f.kind === 'malformed-json') f.text = '{"data": [1, 2,';
+      out = { ...base, kind: 'chaos', mode: r.mode, fault: f, probability: r.probability, seed: String(r.seed ?? ''), budget: r.budget ?? 0, preDelayMs: r.preDelayMs ?? 0, durationMs: 0 };
+    }
+    const v = new V();
+    const rule = out ? validateRule(v, out, '') : null;
+    if (rule && !v.errors.length) rules.push(rule);
+    else { rest.push(raw); notes.push(`Rule ${String(r.label || r.id || i + 1)} was not converted (${out ? v.errors.map((d) => `${d.path}: ${d.message}`).slice(0, 2).join('; ') : `unknown kind ${String(r.kind)}`}); it is kept as data and never runs.`); }
+  });
+  if (relative && rules.length) notes.push('Schema 1 rule URLs without an origin now match the page’s own origin only.');
+  return { rules, rest, notes };
+}
+const arrOf = (x: unknown): Obj[] => (Array.isArray(x) ? x.filter(isObj) : []);
+
 /** Whole aggregate, including cross-entity references and uniqueness. */
 export function validateAggregate(x: unknown): Result<Aggregate> {
   const v = new V();
@@ -549,8 +966,15 @@ export function validateAggregate(x: unknown): Result<Aggregate> {
     plans: v.arr(o.plans, 'plans', BOUNDS.plans).map((e, i) => plan(v, e, `plans.${i}`)),
     authContexts: v.arr(o.authContexts, 'authContexts', 50).map((e, i) => authContext(v, e, `authContexts.${i}`)),
     signingRecipes: v.arr(o.signingRecipes, 'signingRecipes', 50).map((e, i) => signingRecipe(v, e, `signingRecipes.${i}`)),
+    rules: [],
     legacyRules: v.arr(o.legacyRules, 'legacyRules', 1000).map((r, i) => { if (!isObj(r)) v.err(`legacyRules.${i}`, 'Expected an object'); return r; }),
   };
+  if (o.rules === undefined && agg.legacyRules.length) {
+    // Stored before R4: convert schema 1 rules now; what does not convert stays as data.
+    const c = rulesFromV1(agg.legacyRules, new Set(agg.endpoints.map((e) => e.id)));
+    agg.rules = c.rules;
+    agg.legacyRules = c.rest;
+  } else agg.rules = v.arr(o.rules ?? [], 'rules', BOUNDS.rules).map((r, i) => validateRule(v, r, `rules.${i}`));
   references(v, agg);
   return done(v, agg);
 }
@@ -589,6 +1013,8 @@ function references(v: V, agg: Aggregate) {
   agg.authContexts.forEach((a, i) => {
     if (a.refresh && !eps.has(a.refresh.endpointId)) v.err(`authContexts.${i}.refresh.endpointId`, 'Refresh endpoint is missing');
   });
+  uniq(agg.rules, 'rules');
+  agg.rules.forEach((r, i) => { if (r.endpointId && !eps.has(r.endpointId)) v.err(`rules.${i}.endpointId`, 'Linked endpoint is missing'); });
 }
 
 /** Endpoint validation for an editor draft, in the context of the rest of its profile. */
@@ -612,7 +1038,7 @@ export function defaultProfile(name = 'Default'): Aggregate {
       environments: { default: { default: '' } }, activeEnvironment: 'default',
       globalHeaders: [], settings: { bodyCheckKb: BOUNDS.bodyCheckKb.default },
     },
-    endpoints: [], plans: [], authContexts: [], signingRecipes: [], legacyRules: [],
+    endpoints: [], plans: [], authContexts: [], signingRecipes: [], rules: [], legacyRules: [],
   };
 }
 
@@ -649,6 +1075,10 @@ export function copyAggregate(agg: Aggregate, name: string): Aggregate {
   for (const p of c.plans) {
     p.id = newId('plan');
     for (const s of p.steps) s.endpointId = map.get(s.endpointId) ?? s.endpointId;
+  }
+  for (const r of c.rules) {
+    r.id = newId('rule');
+    if (r.endpointId) r.endpointId = map.get(r.endpointId) ?? r.endpointId;
   }
   c.legacyRules = c.legacyRules.map((r) => {
     const o = { ...(r as Obj) };

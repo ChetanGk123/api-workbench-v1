@@ -12,7 +12,7 @@ Must not mutate original/sample while previewing, invoke eval, follow prototype 
 
 ## Task S13.1 — Build shared matcher and breakpoint draft
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** linking and real/synthetic pause semantics. **Status:** NOT STARTED. **Depends on:** S11.1 matcher component, S00.2, rule validation.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** linking and real/synthetic pause semantics. **Status:** PARTIAL: shared matcher/link/detach and save behavior built; breakpoint flags are R5 ([R4 evidence](../R4_REPORT.md)). **Depends on:** S11.1 matcher component, S00.2, rule validation.
 
 1. Reuse identity/link/exact-glob/conditions editor with independent draft and action revision.
 2. Breakpoint flags explain pre-dispatch vs after-response, cap/deadline and synthetic-provider exemption.
@@ -23,7 +23,7 @@ Must not mutate original/sample while previewing, invoke eval, follow prototype 
 
 ## Task S13.2 — Implement headers and transactional patch builder
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** ordered data edits and raw/builder parity. **Status:** NOT STARTED. **Depends on:** patch/header validators.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** ordered data edits and raw/builder parity. **Status:** IMPLEMENTED (raw JSON Patch plus an append-only builder; sample preview) ([R4 evidence](../R4_REPORT.md)). **Depends on:** patch/header validators.
 
 1. Build request/response set/remove headers separately; reject forbidden request names and conflicting invalid fields.
 2. Represent patch rows as ordered validated operations; Add/Remove/Replace/Nullify have explicit path/value; move/copy require from path; test failure aborts transaction.
@@ -35,7 +35,7 @@ Must not mutate original/sample while previewing, invoke eval, follow prototype 
 
 ## Task S13.3 — Implement body/status operations and capability feedback
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** native fidelity/fallback and signing consequences. **Status:** NOT STARTED. **Depends on:** S13.2, body capabilities/adapters.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** native fidelity/fallback and signing consequences. **Status:** PARTIAL: body/status operations and capability skips built; signing-impact display waits for signing preparation (R6) ([R4 evidence](../R4_REPORT.md)). **Depends on:** S13.2, body capabilities/adapters.
 
 1. Literal replace specifies first/all, rejects empty ambiguous find and preserves exact text unless explicitly edited.
 2. Response status blank preserves original; validate synthetic/reconstructed legality and bodyless combinations.

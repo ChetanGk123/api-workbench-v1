@@ -1,229 +1,290 @@
-// Shared, pure request planner. No DOM, no globals: adapters pass everything in.
+// Shared request planner. No DOM, no globals: adapters pass everything in.
+// Matching reads only the original request. The one side effect is reservation in `states`
+// (sequence cursor, chaos sample, budget), done once per request in intake order.
+import type { ChaosFault, ChaosRule, InterceptRule, Matcher, MockRule, MockSlot, Rule, RuleKind, RouteRule } from '../data/schema';
+import { hasBodyOps, hasHeaderOps } from './patch';
 
 export type Transport = 'fetch' | 'xhr';
-export type Module = 'mock' | 'route' | 'intercept';
-export type OpState = 'selected' | 'applied' | 'skipped' | 'superseded' | 'failed';
+export type Module = RuleKind;
+export const MODULES: readonly Module[] = ['mock', 'intercept', 'route', 'chaos'];
+export type OpState = 'selected' | 'applied' | 'skipped' | 'superseded' | 'failed' | 'sampled-out';
+/** request/response split an intercept rule; replay is a real-chaos follow-up. */
+export type Part = 'request' | 'response' | 'replay';
 
 export interface Op {
   module: Module;
+  part?: Part;
   state: OpState;
   reason: string;
-  /** Readable identity of the rule that produced this operation. */
+  /** Readable rule identity, and the stable ID behind it. */
   rule?: string;
-}
-
-export const METHODS = ['*', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
-
-interface RuleBase {
-  /** Rule enabled is separate from Module active. */
-  enabled: boolean;
-  label: string;
-  /** '*' or an upper-case method. */
-  method: string;
-  /** Exact pathname on the launch origin. */
-  path: string;
-}
-export interface MockRule extends RuleBase {
-  status: number;
-  contentType: string;
-  body: string;
-  delayMs: number;
-}
-export interface RouteRule extends RuleBase {
-  /** Validated origin, e.g. http://127.0.0.1:4311 */
-  destinationOrigin: string;
-  /** '' keeps the original path. */
-  pathRewrite: string;
-}
-export interface InterceptRule extends RuleBase {
-  find: string;
-  replace: string;
-}
-
-export interface ModuleState<R> {
-  active: boolean;
-  /** R0 holds at most one rule per module. */
-  rule: Readonly<R> | null;
+  ruleId?: string;
 }
 
 export interface Config {
   readonly revision: number;
-  readonly mock: Readonly<ModuleState<MockRule>>;
-  readonly route: Readonly<ModuleState<RouteRule>>;
-  readonly intercept: Readonly<ModuleState<InterceptRule>>;
+  readonly active: Readonly<Record<Module, boolean>>;
+  /** Saved rules with linked endpoint matchers already resolved. */
+  readonly rules: readonly Readonly<Rule>[];
 }
+
+/** Runtime-only per-rule state. Reset on module activation and on an action revision. */
+export interface RuleState {
+  revision: number;
+  cursor: number;
+  hits: number;
+  armedAt: number;
+  rand: () => number;
+}
+export type RuleStates = Map<string, RuleState>;
 
 export interface Intake {
   transport: Transport;
   method: string;
   url: URL;
+  /** Script-visible request headers, or null when not known at intake. */
+  headers: [string, string][] | null;
+  /** Complete bounded text, or why it is not available for a body condition. */
+  body: { text: string } | { reason: string };
   sync: boolean;
 }
 
 export interface Plan {
   readonly revision: number;
   readonly matched: boolean;
-  readonly provider: 'network' | 'mock';
-  readonly mock?: Readonly<MockRule>;
-  readonly routeTo?: URL;
-  /** True when routing crosses origins; Authorization is then removed. */
-  readonly dropAuthorization: boolean;
-  readonly transform?: Readonly<{ find: string; replace: string }>;
-  /** Initial decisions; adapters copy these into the request record and settle them. */
+  readonly provider: 'network' | 'mock' | 'chaos';
+  /** Mock provider: the reserved reply; null when the sequence is exhausted with a network error. */
+  readonly mock?: { rule: MockRule; slot: MockSlot | null; index: number };
+  /** Sampled-in chaos fault (synthetic provider or real follow-up). Random latency is resolved here. */
+  readonly chaos?: { rule: ChaosRule; fault: ChaosFault; delayMs: number };
+  readonly route?: { rule: RouteRule; to: URL; credentials?: RequestCredentials; dropAuthorization: boolean };
+  /** Parts of the intercept rule still to run (request part only for real traffic). */
+  readonly intercept?: { rule: InterceptRule; request: boolean; response: boolean };
   readonly ops: readonly Readonly<Op>[];
+  /** Selection notes: conditions that could not be evaluated, budgets used up. */
+  readonly notes: readonly string[];
 }
 
 export const LIMITS = {
-  delayMaxMs: 10_000,
   bodyBytes: 1024 * 1024,
   bodyDeadlineMs: 2_000,
   bodyConcurrency: 4,
   records: 500,
   eventsPerRecord: 16,
+  replayInFlight: 20,
 } as const;
 
+export const BODYLESS_STATUS = new Set([101, 103, 204, 205, 304]);
+
 export function defaultConfig(): Config {
-  return {
-    revision: 1,
-    mock: { active: false, rule: null },
-    route: { active: false, rule: null },
-    intercept: { active: false, rule: null },
-  };
+  return { revision: 1, active: { mock: false, intercept: false, route: false, chaos: false }, rules: [] };
 }
 
-export const newMockRule = (): MockRule => ({ enabled: true, label: '', method: '*', path: '/api/mock-target', status: 200, contentType: 'application/json', body: '{"mocked":true,"note":"✓ synthetic"}', delayMs: 0 });
-export const newRouteRule = (): RouteRule => ({ enabled: true, label: '', method: '*', path: '/api/mock-target', destinationOrigin: '', pathRewrite: '' });
-export const newInterceptRule = (): InterceptRule => ({ enabled: true, label: '', method: '*', path: '/api/mock-target', find: '', replace: '' });
+export const ruleName = (r: Rule) => r.label || `${r.matcher.method === '*' ? 'Any' : r.matcher.method} ${r.matcher.path}`;
 
-const NO_MATCH = (revision: number): Plan =>
-  Object.freeze({ revision, matched: false, provider: 'network', dropAuthorization: false, ops: Object.freeze([]) });
+/** Higher priority wins, then creation sequence ascending, then stable ID. */
+export const byPrecedence = (a: Rule, b: Rule) => b.priority - a.priority || a.seq - b.seq || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-function selects<R extends RuleBase>(m: Readonly<ModuleState<R>>, origin: string, req: Intake): Readonly<R> | null {
-  const r = m.rule;
-  if (!m.active || !r || !r.enabled) return null;
-  if (req.url.origin !== origin || req.url.pathname !== r.path) return null;
-  return r.method === '*' || r.method === req.method ? r : null;
+// ---------- matching
+
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** `*` stays inside one segment, `**` crosses segments. */
+export const globSource = (p: string) => p.split('**').map((part) => part.split('*').map(esc).join('[^/]*')).join('.*');
+const globCache = new Map<string, RegExp>();
+export function globMatch(pattern: string, path: string): boolean {
+  let re = globCache.get(pattern);
+  if (!re) {
+    re = new RegExp(`^${globSource(pattern)}$`);
+    if (globCache.size > 500) globCache.clear();
+    globCache.set(pattern, re);
+  }
+  return re.test(path);
 }
 
-export function planRequest(cfg: Config, launchOrigin: string, req: Intake): Plan {
-  const mockRule = selects(cfg.mock, launchOrigin, req);
-  const routeRule = selects(cfg.route, launchOrigin, req);
-  const icRule = selects(cfg.intercept, launchOrigin, req);
-  if (!mockRule && !routeRule && !icRule) return NO_MATCH(cfg.revision);
+export type MatchResult = { match: true } | { match: false; notEvaluated?: string };
 
-  const ops: Op[] = [];
-  const ruleName = (r: RuleBase) => r.label || `${r.method === '*' ? 'Any' : r.method} ${r.path}`;
-  const syncReason = 'Synchronous XHR is passed through unchanged';
-  let provider: Plan['provider'] = 'network';
-  let routeTo: URL | undefined;
-  let transform: { find: string; replace: string } | undefined;
-
-  if (mockRule) {
-    if (req.sync) ops.push({ module: 'mock', rule: ruleName(mockRule), state: 'skipped', reason: syncReason });
-    else {
-      provider = 'mock';
-      ops.push({ module: 'mock', rule: ruleName(mockRule), state: 'selected', reason: 'Synthetic reply; no upstream request' });
+export function matches(m: Matcher, launchOrigin: string, req: Intake): MatchResult {
+  if (m.method !== '*' && m.method !== req.method) return { match: false };
+  if (req.url.origin !== (m.origin || launchOrigin)) return { match: false };
+  if (!globMatch(m.path, req.url.pathname)) return { match: false };
+  for (const [k, v] of m.query) {
+    const values = req.url.searchParams.getAll(k);
+    if (!values.length || (v !== '' && !values.includes(v))) return { match: false };
+  }
+  if (m.headers.length) {
+    if (!req.headers) return { match: false, notEvaluated: 'request headers are not known at intake' };
+    for (const [k, v] of m.headers) {
+      const got = req.headers.filter(([n]) => n.toLowerCase() === k.toLowerCase()).map(([, x]) => x);
+      if (!got.length || (v !== '' && !got.includes(v))) return { match: false };
     }
   }
-
-  if (routeRule) {
-    if (provider === 'mock') ops.push({ module: 'route', rule: ruleName(routeRule), state: 'superseded', reason: 'Mock reply wins; nothing is dispatched' });
-    else if (req.sync) ops.push({ module: 'route', rule: ruleName(routeRule), state: 'skipped', reason: syncReason });
-    else {
-      routeTo = routedUrl(routeRule, req.url);
-      ops.push({ module: 'route', rule: ruleName(routeRule), state: 'selected', reason: `Route to ${routeTo.origin}${routeTo.pathname}` });
-    }
+  if (m.bodyContains) {
+    if (!('text' in req.body)) return { match: false, notEvaluated: `body condition not evaluated: ${req.body.reason}` };
+    if (!req.body.text.includes(m.bodyContains)) return { match: false };
   }
-
-  if (icRule) {
-    if (provider === 'mock') ops.push({ module: 'intercept', rule: ruleName(icRule), state: 'skipped', reason: 'R0 intercepts network responses only' });
-    else if (req.sync) ops.push({ module: 'intercept', rule: ruleName(icRule), state: 'skipped', reason: syncReason });
-    else {
-      transform = { find: icRule.find, replace: icRule.replace };
-      ops.push({ module: 'intercept', rule: ruleName(icRule), state: 'selected', reason: 'Replace response text' });
-    }
-  }
-
-  const plan: Plan = {
-    revision: cfg.revision,
-    matched: true,
-    provider,
-    dropAuthorization: !!routeTo && routeTo.origin !== req.url.origin,
-    ops: Object.freeze(ops.map((o) => Object.freeze(o))),
-    ...(provider === 'mock' && mockRule && { mock: mockRule }),
-    ...(routeTo && { routeTo }),
-    ...(transform && { transform: Object.freeze(transform) }),
-  };
-  return Object.freeze(plan);
+  return { match: true };
 }
 
-/** Destination origin + (rewrite or original path); the original query is preserved. */
-export function routedUrl(rule: Pick<RouteRule, 'destinationOrigin' | 'pathRewrite'>, original: URL): URL {
-  const out = new URL(rule.pathRewrite || original.pathname, rule.destinationOrigin);
+// ---------- route
+
+/** Destination URL: exact rewrite, one trailing /** capture, or the original path. The query is kept. */
+export function routedUrl(rule: Pick<RouteRule, 'destinationOrigin' | 'pathRewrite' | 'matcher'>, original: URL): URL {
+  let path = original.pathname;
+  const rw = rule.pathRewrite;
+  if (rw.endsWith('/**')) {
+    const prefix = rule.matcher.path.slice(0, -3);
+    const m = new RegExp(`^${globSource(prefix)}/(.*)$`).exec(original.pathname);
+    path = rw.slice(0, -3) + (m ? `/${m[1]}` : '');
+  } else if (rw) path = rw;
+  const out = new URL(path, rule.destinationOrigin);
   out.search = original.search;
   return out;
 }
 
-// ---- Validators: each returns field → message for invalid fields.
-export type Errors = Partial<Record<string, string>>;
+// ---------- seeded sampling
 
-function validateBase(r: RuleBase, e: Errors) {
-  if (!METHODS.includes(r.method as (typeof METHODS)[number])) e.method = 'Choose a method';
-  const pathErr = validatePath(r.path);
-  if (pathErr) e.path = pathErr;
-  if (r.label.length > 120) e.label = 'Label is limited to 120 characters';
+function hash(text: string): number {
+  let v = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { v ^= text.charCodeAt(i); v = Math.imul(v, 0x01000193); }
+  return v >>> 0;
 }
-
-export function validatePath(p: string): string | null {
-  return p.startsWith('/') && !/[?#\s]/.test(p) ? null : 'Enter a pathname starting with / (no query, fragment or spaces)';
+/** mulberry32: small and deterministic; reproduces an ordered sample stream for one seed. */
+export function seeded(seed: string): () => number {
+  let s = hash(seed);
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
+export const freshState = (r: Rule, now: number): RuleState => ({
+  revision: r.revision, cursor: 0, hits: 0, armedAt: now,
+  rand: r.kind === 'chaos' && r.seed ? seeded(r.seed) : Math.random,
+});
 
-export function validateMockRule(r: MockRule): Errors {
-  const e: Errors = {};
-  validateBase(r, e);
-  if (!Number.isInteger(r.status) || r.status < 200 || r.status > 599) e.status = 'Status must be an integer from 200 to 599';
-  if (!Number.isInteger(r.delayMs) || r.delayMs < 0 || r.delayMs > LIMITS.delayMaxMs) e.delayMs = `Delay must be 0–${LIMITS.delayMaxMs} ms`;
-  if (!r.contentType.trim() || /[\r\n]/.test(r.contentType)) e.contentType = 'Enter a Content-Type';
-  return e;
-}
+// ---------- planning
 
-export function validateRouteRule(r: RouteRule): Errors {
-  const e: Errors = {};
-  validateBase(r, e);
-  const o = validateOrigin(r.destinationOrigin);
-  if (!o.ok) e.destinationOrigin = o.error;
-  if (r.pathRewrite) {
-    const pe = validatePath(r.pathRewrite);
-    if (pe) e.pathRewrite = pe;
+const NO_MATCH = (revision: number, notes: string[]): Plan =>
+  Object.freeze({ revision, matched: false, provider: 'network', ops: Object.freeze([]), notes: Object.freeze(notes) });
+
+export function planRequest(cfg: Config, states: RuleStates, launchOrigin: string, req: Intake, now = performance.now()): Plan {
+  const notes: string[] = [];
+  const stateOf = (r: Rule) => {
+    let s = states.get(r.id);
+    if (!s || s.revision !== r.revision) states.set(r.id, (s = freshState(r, now)));
+    return s;
+  };
+  const winner = <K extends Module>(m: K): Extract<Rule, { kind: K }> | null => {
+    if (!cfg.active[m]) return null;
+    const list = cfg.rules.filter((r): r is Extract<Rule, { kind: K }> => r.kind === m && r.enabled).sort(byPrecedence);
+    for (const r of list) {
+      const res = matches(r.matcher, launchOrigin, req);
+      if (!res.match) {
+        if (res.notEvaluated) notes.push(`${ruleName(r)}: ${res.notEvaluated}; not matched`);
+        continue;
+      }
+      if (r.kind === 'chaos') {
+        const c = r as ChaosRule, s = stateOf(c);
+        if (c.budget && s.hits >= c.budget) { notes.push(`${ruleName(c)}: hit budget ${c.budget} used; not selected`); continue; }
+        if (c.durationMs && now - s.armedAt > c.durationMs) { notes.push(`${ruleName(c)}: active period of ${c.durationMs} ms ended; not selected`); continue; }
+      }
+      return r;
+    }
+    return null;
+  };
+
+  const mockR = winner('mock'), icR = winner('intercept'), routeR = winner('route'), chaosR = winner('chaos');
+  if (!mockR && !icR && !routeR && !chaosR) return NO_MATCH(cfg.revision, notes);
+
+  const ops: Op[] = [];
+  const op = (r: Rule, state: OpState, reason: string, part?: Part) => ops.push({ module: r.kind, state, reason, rule: ruleName(r), ruleId: r.id, ...(part && { part }) });
+
+  if (req.sync) {
+    for (const r of [chaosR, mockR, routeR, icR]) if (r) op(r, 'skipped', 'Synchronous XHR is passed through unchanged');
+    return Object.freeze({ revision: cfg.revision, matched: true, provider: 'network', ops: Object.freeze(ops), notes: Object.freeze(notes) });
   }
-  return e;
-}
 
-export function validateInterceptRule(r: InterceptRule): Errors {
-  const e: Errors = {};
-  validateBase(r, e);
-  if (!r.find) e.find = 'Enter the literal text to find';
-  return e;
-}
-
-export function validateOrigin(text: string): { ok: true; origin: string } | { ok: false; error: string } {
-  let u: URL;
-  try {
-    u = new URL(text.trim());
-  } catch {
-    return { ok: false, error: 'Enter an origin such as http://localhost:8080' };
+  // Chaos: one sample per selected request; a failed sample never tries a lower-priority rule.
+  let chaos: Plan['chaos'];
+  if (chaosR) {
+    const s = stateOf(chaosR);
+    const draw = s.rand();
+    if (draw * 100 >= chaosR.probability) op(chaosR, 'sampled-out', `Not sampled (${chaosR.probability}% chance${chaosR.seed ? `, seed “${chaosR.seed}”` : ''}); request unaffected`);
+    else {
+      const f = chaosR.fault;
+      const delayMs = f.kind === 'latency' ? f.delayMs : f.kind === 'random-latency' ? f.minMs + Math.floor(s.rand() * (f.maxMs - f.minMs + 1)) : 0;
+      chaos = { rule: chaosR, fault: f, delayMs };
+    }
   }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, error: 'Only http and https destinations are supported' };
-  if (u.username || u.password) return { ok: false, error: 'Destination must not contain credentials' };
-  if ((u.pathname !== '/' && u.pathname !== '') || u.search || u.hash) return { ok: false, error: 'Enter only the origin; use Path rewrite for the path' };
-  return { ok: true, origin: u.origin };
+  const synthetic = chaos?.rule.mode === 'synthetic';
+  let provider: Plan['provider'] = synthetic ? 'chaos' : 'network';
+
+  let mock: Plan['mock'];
+  if (mockR) {
+    if (synthetic) op(mockR, 'superseded', 'A synthetic chaos fault wins over the mock reply');
+    else {
+      provider = 'mock';
+      const s = stateOf(mockR);
+      const n = mockR.slots.length;
+      const i = mockR.mode === 'static' ? 0 : s.cursor++;
+      const index = i < n ? i : mockR.exhaustion === 'loop' ? i % n : mockR.exhaustion === 'repeat-last' ? n - 1 : -1;
+      mock = { rule: mockR, slot: index < 0 ? null : mockR.slots[index]!, index };
+      op(mockR, 'selected', index < 0 ? `Sequence exhausted after ${n} replies: network error, nothing sent` : `Reply ${index + 1}${n > 1 ? ` of ${n}` : ''}; no upstream request`);
+    }
+  }
+
+  if (chaos) {
+    // The hit budget counts reserved faults; a superseded one gives nothing back because it never took one.
+    if (provider === 'mock') { op(chaos.rule, 'superseded', 'Mock reply wins; real chaos needs real traffic'); chaos = undefined; }
+    else { op(chaos.rule, 'selected', describeFault(chaos)); stateOf(chaos.rule).hits++; }
+  }
+
+  let route: Plan['route'];
+  if (routeR) {
+    if (provider !== 'network') op(routeR, 'superseded', `${provider === 'mock' ? 'Mock reply' : 'Synthetic chaos fault'} wins; nothing is dispatched`);
+    else {
+      const to = routedUrl(routeR, req.url);
+      const cross = to.origin !== req.url.origin;
+      route = { rule: routeR, to, dropAuthorization: cross && !routeR.keepAuthorization, ...(routeR.credentials !== 'caller' && { credentials: routeR.credentials }) };
+      op(routeR, 'selected', `Route to ${to.origin}${to.pathname}`);
+    }
+  }
+
+  let intercept: Plan['intercept'];
+  if (icR) {
+    const wantReq = hasHeaderOps(icR.request) || hasBodyOps(icR.request);
+    const wantRes = hasHeaderOps(icR.response) || hasBodyOps(icR.response) || !!icR.response.status;
+    const noReply = provider === 'mock' ? !mock?.slot || mock.slot.fault !== 'none' : provider === 'chaos' ? chaos!.fault.kind === 'network-error' || chaos!.fault.kind === 'timeout' : false;
+    let request = false, response = false;
+    if (wantReq) {
+      if (provider !== 'network') op(icR, 'superseded', `${provider === 'mock' ? 'Mock reply' : 'Synthetic chaos fault'}: no request is sent to edit`, 'request');
+      else { request = true; op(icR, 'selected', 'Edit request', 'request'); }
+    }
+    if (wantRes) {
+      if (noReply) op(icR, 'superseded', 'A transport failure has no response to edit', 'response');
+      else { response = true; op(icR, 'selected', 'Edit response', 'response'); }
+    }
+    if (request || response) intercept = { rule: icR, request, response };
+  }
+
+  return Object.freeze({
+    revision: cfg.revision, matched: true, provider, ops: Object.freeze(ops.map((o) => Object.freeze(o))), notes: Object.freeze(notes),
+    ...(mock && { mock }), ...(chaos && { chaos }), ...(route && { route }), ...(intercept && { intercept }),
+  });
 }
 
-/** Transform eligibility for an XHR response type. XHR body editing is not part of R0. */
-export function xhrTransformSkip(responseType: XMLHttpRequestResponseType): string {
-  return responseType === '' || responseType === 'text' || responseType === 'json'
-    ? 'XHR response text editing is not implemented in R0; native response delivered'
-    : `XHR ${responseType} response cannot be edited as text; native typed response delivered`;
+export function describeFault(c: { rule: ChaosRule; fault: ChaosFault; delayMs: number }): string {
+  const f = c.fault;
+  const real = c.rule.mode === 'real';
+  const pre = real && c.rule.preDelayMs ? `wait ${c.rule.preDelayMs} ms, send, ` : real ? 'send, then ' : '';
+  switch (f.kind) {
+    case 'status': return `${pre}${real ? 'replace the response with' : 'synthetic'} HTTP ${f.status}`;
+    case 'latency': case 'random-latency': return `${pre}delay delivery ${c.delayMs} ms`;
+    case 'network-error': return `${pre}${real ? 'drop the response: ' : ''}network error`;
+    case 'timeout': return `${pre}${real ? 'drop the response: ' : ''}time out after ${f.timeoutMs} ms`;
+    case 'malformed-json': return `${pre}${real ? 'replace the body with' : 'synthetic 200 with'} malformed JSON`;
+    case 'corrupt-json': return `${pre}corrupt ${f.patch.length} JSON field${f.patch.length > 1 ? 's' : ''}`;
+    case 'replay': return `${pre}send ${f.copies} extra cop${f.copies > 1 ? 'ies' : 'y'}${f.gapMs ? ` ${f.gapMs} ms apart` : ''}; the page sees the first response`;
+  }
 }
-
-export const BODYLESS_STATUS = new Set([101, 103, 204, 205, 304]);

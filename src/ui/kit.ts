@@ -1,5 +1,5 @@
 // Shared view vocabulary for panel screens: navigation contract, draft forms and small controls.
-import type { Diag } from '../data/schema';
+import type { Diag, Pair } from '../data/schema';
 import type { Session } from '../data/store';
 import type { Runtime } from '../net/runtime';
 import { h, icon, type IconName } from './dom';
@@ -104,6 +104,24 @@ export function select<T extends string>(value: T, options: readonly (T | [T, st
     }));
   el.addEventListener('change', () => onChange(el.value as T));
   return el;
+}
+
+/** Editable [name, value] rows with per-row error slots under `path.i`. */
+export function pairRows(list: Pair[], what: string, errs: Errors, path: string, onChange: () => void = () => {}) {
+  const wrap = h('div', { class: 'aw-col aw-gap6' });
+  const draw = (focusLast = false) => {
+    wrap.replaceChildren(...list.map((p, i) => {
+      const name = input(p[0], (v) => { p[0] = v; onChange(); }, { mono: true, label: `${what} ${i + 1} name`, placeholder: 'name' });
+      const err = h('span', { class: 'aw-err', role: 'alert' });
+      errs.slot(`${path}.${i}`, err, name);
+      return h('div', { class: 'aw-col' }, h('div', { class: 'aw-row aw-gap6' }, name,
+        input(p[1], (v) => { p[1] = v; onChange(); }, { mono: true, label: `${what} ${i + 1} value`, placeholder: 'value' }),
+        btn([icon('x')], () => { list.splice(i, 1); onChange(); draw(); }, 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Remove ${what} ${i + 1}` })), err);
+    }), btn([icon('plus', 'aw-i aw-i12'), `Add ${what}`], () => { list.push(['', '']); onChange(); draw(true); }, 'aw-btn aw-dash aw-sm'));
+    if (focusLast) wrap.querySelectorAll<HTMLInputElement>('input')[list.length * 2 - 2]?.focus();
+  };
+  draw();
+  return wrap;
 }
 
 /** Error slots keyed by field path; unmatched diagnostics go to a summary so none is silently lost. */

@@ -2,6 +2,7 @@
 // generated bookmark (injection; NOT evidence of saved-bookmark installation).
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { addIntercept, fill, newRule, OLD_MOCK_BODY, saveRule, tab } from './rule-helpers';
 
 const A = `http://127.0.0.1:${process.env.AW_PORT ?? 4310}`;
 const bookmark = readFileSync('dist/bookmark.txt', 'utf8');
@@ -12,7 +13,6 @@ const launch = (page: Page) => page.evaluate(source);
 const send = (page: Page, o: Record<string, unknown>) => page.evaluate((opts) => (window as any).fx.send(opts), o) as Promise<Record<string, any>>;
 const aw = (page: Page) => page.locator('[data-api-workbench]');
 const box = async (page: Page) => (await page.locator('[data-api-workbench] .aw-panel').boundingBox())!;
-const tab = (page: Page, name: string) => page.getByRole('navigation', { name: 'Modules' }).getByRole('button', { name, exact: true }).click();
 const focusedKey = (page: Page) => aw(page).evaluate((el) => el.shadowRoot!.activeElement?.getAttribute('data-key') ?? el.shadowRoot!.activeElement?.id ?? null);
 const stored = (page: Page) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? 'null'), KEY);
 
@@ -52,22 +52,23 @@ test.describe('navigation and drafts (S00.1/S00.2, G22)', () => {
     await card.getByRole('button', { name: 'New Mock rule' }).click();
     await expect(page.getByRole('heading', { name: 'New mock rule' })).toBeFocused();
     await expect(page.getByRole('button', { name: 'Back to Home' })).toBeVisible();
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await fill(page, { 'aw-path': '/api/mock-target', 'aw-body': OLD_MOCK_BODY });
+    await saveRule(page);
     await expect(card).toContainText('1 enabled rule · Module inactive: traffic unaffected');
     expect(await focusedKey(page)).toBe('card-mock');
     expect((await send(page, { url: '/api/mock-target' })).body.text).not.toContain('mocked');
     await card.getByRole('button', { name: 'Activate Mock module' }).click();
     expect((await send(page, { url: '/api/mock-target' })).body.text).toContain('mocked');
-    await expect(card).toContainText('1 enabled rule · 1 requests mocked');
+    await expect(card).toContainText('1 enabled rule · 1 replies served');
     await expect(page.getByRole('region', { name: 'API Interceptor' })).toContainText('No rules yet');
     await expect(page.getByRole('region', { name: 'API Interceptor' })).toContainText('Inactive');
 
-    // Route's inline editor opened from Home also returns to Home, and a dirty Cancel asks first.
+    // Route's editor opened from Home also returns to Home, and a dirty Cancel asks first.
     await page.getByRole('region', { name: 'Page Routing' }).getByRole('button', { name: 'New Route rule' }).click();
-    await page.locator('#aw-dest').fill('http://127.0.0.1:1');
+    await page.locator('#aw-route-dest').fill('http://127.0.0.1:1');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Keep editing' }).click();
-    await expect(page.locator('#aw-dest')).toHaveValue('http://127.0.0.1:1');
+    await expect(page.locator('#aw-route-dest')).toHaveValue('http://127.0.0.1:1');
     await page.getByRole('button', { name: 'Back to Home' }).click();
     await page.getByRole('button', { name: 'Discard' }).click();
     expect(await focusedKey(page)).toBe('card-route');
@@ -75,19 +76,17 @@ test.describe('navigation and drafts (S00.1/S00.2, G22)', () => {
 
   test('editor from a module list returns there and focuses the saved rule', async ({ page }) => {
     await launch(page);
-    await tab(page, 'Mock');
-    await page.getByRole('button', { name: 'Add ad-hoc rule' }).click();
+    await newRule(page, 'Mock');
     await expect(page.getByRole('button', { name: 'Back to Mock' })).toBeVisible();
-    await page.locator('#aw-label').fill('Accounts');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await fill(page, { 'aw-label': 'Accounts', 'aw-path': '/api/accounts' });
+    await saveRule(page);
     await expect(page.getByRole('button', { name: 'Edit Accounts' })).toBeFocused();
   });
 
   test('caret and value stay put in an editor while traffic bursts', async ({ page }) => {
     await launch(page);
-    await tab(page, 'Mock');
-    await page.getByRole('button', { name: 'Add ad-hoc rule' }).click();
-    const label = page.locator('#aw-label');
+    await newRule(page, 'Mock');
+    const label = page.locator('#aw-r-label');
     await label.fill('abcdef');
     await label.evaluate((el: HTMLInputElement) => el.setSelectionRange(3, 3));
     await page.evaluate(() => Promise.all(Array.from({ length: 40 }, () => fetch('/api/echo'))));
@@ -134,25 +133,18 @@ test.describe('request detail (S21.1/S21.2 R1 portion, G08)', () => {
 
   test('mixed outcome is explained per operation with rule names and timing', async ({ page }) => {
     await launch(page);
-    await tab(page, 'Route');
-    await page.getByRole('button', { name: 'Add page rule' }).click();
-    await page.locator('#aw-label').fill('Wires to local');
-    await page.locator('#aw-dest').fill(A);
-    await page.locator('#aw-rewrite').fill('/api/r0-routed');
-    await page.getByRole('button', { name: 'Save rule' }).click();
+    await newRule(page, 'Route');
+    await fill(page, { 'aw-label': 'Wires to local', 'aw-path': '/api/mock-target', 'aw-dest': A, 'aw-rewrite': '/api/r0-routed' });
+    await saveRule(page);
     await page.getByRole('button', { name: 'Activate Route module' }).click();
-    await tab(page, 'Intercept');
-    await page.getByRole('button', { name: 'Add rule', exact: true }).click();
-    await page.locator('#aw-find').fill('r0');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await page.getByRole('button', { name: 'Activate Intercept module' }).click();
+    await addIntercept(page, { find: 'r0' });
     await send(page, { transport: 'xhr', url: '/api/mock-target', responseType: 'arraybuffer' });
     await page.locator('[data-api-workbench] button[data-id]').first().click();
     const d = aw(page).locator('.aw-detail');
-    await expect(d).toContainText('Applied route · Skipped intercept · XHR arraybuffer · routed URL sent');
+    await expect(d).toContainText('Applied route · Skipped intercept response · XHR arraybuffer · routed URL sent');
     await expect(d).toContainText(`GET ${A}/api/r0-routed`);
     await expect(d).toContainText('Wires to local: Sent to');
-    await expect(d).toContainText('Any /api/mock-target: XHR arraybuffer response cannot be edited as text');
+    await expect(d).toContainText('Any /api/mock-target: Response unchanged: XHR arraybuffer response cannot be edited as text');
     await expect(d).toContainText(/\+\d+ ms/);
     await expect(d).toContainText('HTTP 200');
     await expect(page.getByRole('button', { name: 'Back to Intercept' })).toBeVisible();
@@ -224,14 +216,14 @@ test.describe('geometry (G22, R0 carry-over)', () => {
 
   test('native resize grip sets the size preference and it survives reload', async ({ page }) => {
     await launch(page);
-    await tab(page, 'Chaos'); // short screen: the grip is well inside the viewport
+    await page.getByRole('button', { name: 'Endpoints', exact: true }).first().click(); // short empty screen: the grip is well inside the viewport
     const p = await box(page);
     await page.mouse.move(p.x + p.width - 3, p.y + p.height - 3);
     await page.mouse.down();
     await page.mouse.move(p.x + p.width - 103, p.y + p.height + 57, { steps: 5 });
     await page.mouse.up();
     const q = await box(page);
-    expect([q.width, q.height]).toEqual([p.width - 100, p.height + 60]);
+    expect([q.width, q.height]).toEqual([Math.round(p.width - 100), Math.round(p.height + 60)]);
     expect(await stored(page)).toMatchObject({ size: { w: q.width, h: q.height } });
     await page.reload();
     await launch(page);
@@ -246,8 +238,7 @@ test.describe('geometry (G22, R0 carry-over)', () => {
     expect(c.x + c.width).toBeLessThanOrEqual(360);
     const overflow = await aw(page).locator('.aw-panel').evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
-    await tab(page, 'Mock'); // labels visually collapsed, accessible names intact
-    await page.getByRole('button', { name: 'Add ad-hoc rule' }).click();
+    await newRule(page, 'Mock'); // labels visually collapsed, accessible names intact
     const save = (await page.getByRole('button', { name: 'Save', exact: true }).boundingBox())!;
     expect(save.y + save.height).toBeLessThanOrEqual(420);
   });
@@ -256,9 +247,8 @@ test.describe('geometry (G22, R0 carry-over)', () => {
 test.describe('minimize and lifecycle (S00.3/S20.1, G03)', () => {
   test('minimized draft survives relaunch with focus; launcher Close asks first; launcher position is separate', async ({ page }) => {
     await launch(page);
-    await tab(page, 'Mock');
-    await page.getByRole('button', { name: 'Add ad-hoc rule' }).click();
-    await page.locator('#aw-body').fill('draft X');
+    await newRule(page, 'Mock');
+    await page.locator('#aw-slot-0-body').fill('draft X');
     await page.getByRole('button', { name: 'Minimize', exact: true }).click();
     await expect(page.getByRole('region', { name: 'API Workbench minimized' })).toContainText('No modules active');
 
@@ -273,13 +263,13 @@ test.describe('minimize and lifecycle (S00.3/S20.1, G03)', () => {
 
     await launch(page); // saved-bookmark click again
     await expect(aw(page)).toHaveCount(1);
-    await expect(page.locator('#aw-body')).toHaveValue('draft X');
-    await expect(page.locator('#aw-body')).toBeFocused();
+    await expect(page.locator('#aw-slot-0-body')).toHaveValue('draft X');
+    await expect(page.locator('#aw-slot-0-body')).toBeFocused();
 
     await page.getByRole('button', { name: 'Minimize', exact: true }).click();
     await aw(page).locator('.aw-launcher').getByRole('button', { name: 'Close API Workbench and remove its hooks' }).click();
     await page.getByRole('button', { name: 'Keep editing' }).click();
-    await expect(page.locator('#aw-body')).toHaveValue('draft X');
+    await expect(page.locator('#aw-slot-0-body')).toHaveValue('draft X');
     await page.getByRole('button', { name: 'Close API Workbench and remove its hooks' }).click();
     await page.getByRole('button', { name: 'Discard' }).click();
     await expect(aw(page)).toHaveCount(0);
@@ -289,7 +279,8 @@ test.describe('minimize and lifecycle (S00.3/S20.1, G03)', () => {
     await launch(page);
     const card = page.getByRole('region', { name: 'Mock Server' });
     await card.getByRole('button', { name: 'New Mock rule' }).click();
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await fill(page, { 'aw-path': '/api/mock-target', 'aw-body': OLD_MOCK_BODY });
+    await saveRule(page);
     await card.getByRole('button', { name: 'Activate Mock module' }).click();
     await page.getByRole('button', { name: 'Stop all' }).click();
     await expect(card).toContainText('Inactive');

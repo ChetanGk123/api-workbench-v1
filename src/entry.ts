@@ -38,7 +38,7 @@ interface Instance {
   const nativeFetch = window.fetch;
   const xhrNative = captureXhr();
   const awFetch = createFetch(nativeFetch, rt);
-  const awXhr = createXhr(xhrNative, rt);
+  const awXhr = createXhr(xhrNative, rt, nativeFetch);
   const proto = XMLHttpRequest.prototype;
 
   window.fetch = awFetch;

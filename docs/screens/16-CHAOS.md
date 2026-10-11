@@ -12,7 +12,7 @@ Do not promise server rollback, secretly retry transfers, reset budget on render
 
 ## Task S16.1 — Implement preset selection and rule list
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** reuse of rule/preset UI with explicit scope. **Status:** NOT STARTED. **Depends on:** S00, CHAOS action definitions.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** reuse of rule/preset UI with explicit scope. **Status:** IMPLEMENTED; verification incomplete ([R4 evidence](../R4_REPORT.md)). **Depends on:** S00, CHAOS action definitions.
 
 1. Render preset actions from finite registry shared with validators/help; More uses native disclosure.
 2. Preset opens draft, selects endpoint or explicit matcher, and shows synthetic/real default before Save.
@@ -23,7 +23,7 @@ Do not promise server rollback, secretly retry transfers, reset budget on render
 
 ## Task S16.2 — Show sampling, budget and fault outcomes
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** runtime counters and probability explanations. **Status:** NOT STARTED. **Depends on:** S16.1, chaos engine, S21.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** runtime counters and probability explanations. **Status:** IMPLEMENTED; verification incomplete ([R4 evidence](../R4_REPORT.md)). **Depends on:** S16.1, chaos engine, S21.
 
 1. Display matched/sampled-out/applied/skipped/superseded counts distinctly and current hit budget/deadline.
 2. Show seeded ordering guarantee without claiming arbitrary concurrent determinism.
@@ -34,7 +34,7 @@ Do not promise server rollback, secretly retry transfers, reset budget on render
 
 ## Task S16.3 — Verify complex failure journeys
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** real effects, replay and cancellation can duplicate writes. **Status:** NOT STARTED. **Depends on:** S17, adapters/run cancellation.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** real effects, replay and cancellation can duplicate writes. **Status:** PARTIAL: page-call journeys, idempotent duplicate and Stop/Close during replay pass in Chrome; tester-driven and expired-auth/429 journeys NOT RUN ([R4 evidence](../R4_REPORT.md)). **Depends on:** S17, adapters/run cancellation.
 
 1. Create explicit fault rule through UI and issue matching page/tester calls in stated mode.
 2. Assert synthetic zero hits vs real primary hit and explicit bounded copies outside wrapped transports.

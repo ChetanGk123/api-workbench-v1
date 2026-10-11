@@ -12,7 +12,7 @@ Do not imply active module means every request is mocked, silently fall back to 
 
 ## Task S10.1 — Build rule list and activation states
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** common list/control presentation. **Status:** NOT STARTED. **Depends on:** S00 and mock selectors/commands.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** common list/control presentation. **Status:** IMPLEMENTED; verification incomplete ([R4 evidence](../R4_REPORT.md)). **Depends on:** S00 and mock selectors/commands.
 
 1. Derive linked/ad-hoc groups, enabled counts and module state; label no-rule/inactive/active cases separately.
 2. Wire New rule/From endpoint to drafts; choose by endpoint ID/display name and show missing sample explicitly.
@@ -23,7 +23,7 @@ Do not imply active module means every request is mocked, silently fall back to 
 
 ## Task S10.2 — Expose sequence and operation outcomes
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** counters must reflect reservations and actual delivery. **Status:** NOT STARTED. **Depends on:** S10.1, sequence engine, S21.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** counters must reflect reservations and actual delivery. **Status:** IMPLEMENTED; verification incomplete ([R4 evidence](../R4_REPORT.md)). **Depends on:** S10.1, sequence engine, S21.
 
 1. Render cursor/next slot/exhaustion policy from runtime reservations, not saved fields.
 2. Show matched/applied/skipped/superseded counters and bounded request rows with source/status/transport.
@@ -34,7 +34,7 @@ Do not imply active module means every request is mocked, silently fall back to 
 
 ## Task S10.3 — Verify list-to-editor-to-page journey
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** UI success must equal native behavior and zero server hits. **Status:** NOT STARTED. **Depends on:** S11 and native mock adapters.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** UI success must equal native behavior and zero server hits. **Status:** IMPLEMENTED in Chrome; Edge NOT RUN ([R4 evidence](../R4_REPORT.md)). **Depends on:** S11 and native mock adapters.
 
 1. Create from endpoint/sample, inspect response, save/enable/activate and issue native page Fetch/XHR.
 2. Assert returned fields/body/events and upstream deltas outside hooks; unmatched request remains native.

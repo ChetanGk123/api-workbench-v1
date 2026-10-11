@@ -234,7 +234,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const n = r.native!;
     const read = n.read;
     const out: Node[] = read.aggs.map((a) => h('div', { class: 'aw-xs aw-mono aw-wrap' },
-      `${a.profile.name}: ${a.endpoints.length} endpoints, ${a.plans.length} plans, ${a.authContexts.length} auth contexts, ${a.signingRecipes.length} signing recipes${a.legacyRules.length ? `, ${a.legacyRules.length} saved rules (kept as data)` : ''}${s.all().some((b) => b.profile.id === a.profile.id) ? ' · already stored' : ''}`));
+      `${a.profile.name}: ${a.endpoints.length} endpoints, ${a.plans.length} plans, ${a.authContexts.length} auth contexts, ${a.signingRecipes.length} signing recipes${a.rules.length ? `, ${a.rules.length} rules` : ''}${a.legacyRules.length ? `, ${a.legacyRules.length} unconverted schema 1 rules (kept as data)` : ''}${s.all().some((b) => b.profile.id === a.profile.id) ? ' · already stored' : ''}`));
     const single = read.kind !== 'backup' && read.aggs.length === 1;
     const modes: [NativeMode, string][] = read.kind === 'backup' ? [['all', 'Replace all profiles (restore backup)']]
       : single ? [['new', 'New profile, then switch to it'], ['merge', `Merge into ${cur.profile.name}`], ['replace', `Replace ${cur.profile.name}`]]

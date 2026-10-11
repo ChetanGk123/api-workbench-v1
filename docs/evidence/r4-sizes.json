@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0-r4",
+  "builtAt": "2026-10-11T06:35:35.429Z",
+  "readableBytes": 407044,
+  "minifiedBytes": 264118,
+  "bookmarkChars": 386042,
+  "sha256": {
+    "readable": "b96defca0f2e3697e5890c67c5a0c2b0cf120c047ed848ef52c98141b4015896",
+    "minified": "406c6d99c492694c829badd485f58c99bd6b60ec6179f0b1a085afd4c028faf7",
+    "bookmark": "38b87785586e302f7ef9189be3b91a30c1b3d982248c99e593ac58535d3d5d70"
+  }
+}

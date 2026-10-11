@@ -2,7 +2,7 @@
 // `api-workbench` record) and returns validated schema 2 aggregates, or diagnostics and no data.
 // Never guesses missing body/auth intent; raw text is kept exactly.
 import {
-  BOUNDS, copyAggregate, SCHEMA, utf8Bytes, validateAggregate,
+  BOUNDS, copyAggregate, rulesFromV1, SCHEMA, utf8Bytes, validateAggregate,
   type Aggregate, type Body, type Check, type Diag, type Endpoint, type Plan, type Profile, type Sample, type Step,
 } from './schema';
 
@@ -93,11 +93,13 @@ function convert(s: { profile: Obj; endpoints: unknown[]; rules: unknown[]; plan
   };
   const endpoints = s.endpoints.map((e) => endpoint(e, notes));
   const order = endpoints.map((e) => e.id);
+  const r = rulesFromV1(s.rules, new Set(order));
+  notes.push(...r.notes.map((n) => `${profile.name}: ${n}`));
   return {
     schema: SCHEMA, revision: 0, profile, endpoints,
     plans: s.plans.map((pl) => plan(pl, order)),
     authContexts: [], signingRecipes: [],
-    legacyRules: s.rules,
+    rules: r.rules, legacyRules: r.rest,
   };
 }
 
