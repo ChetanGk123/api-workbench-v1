@@ -6,7 +6,7 @@ import { describeCheck, evaluate, pageSources, prepare, send, type CheckOutcome,
 import { signPrepared } from '../tester/sign';
 import { createContextUi } from './context';
 import { h, icon } from './dom';
-import { btn, heading, methodBadge, section, tile, type Built, type Kit } from './kit';
+import { btn, fileButton, heading, methodBadge, section, tile, type Built, type Kit } from './kit';
 import { createPlansUi } from './plans';
 import { createRuns, resultsNodes, type RunEntry } from './results';
 
@@ -269,7 +269,7 @@ export function createTestUi(kit: Kit) {
           refresh();
         });
         const chosen = files.get(i);
-        return [h('div', { class: 'aw-row aw-gap6 aw-xs' }, h('span', { class: 'aw-mono' }, part.name), f,
+        return [h('div', { class: 'aw-row aw-gap6 aw-xs' }, h('span', { class: 'aw-mono' }, part.name), fileButton(f),
           h('span', { class: 'aw-mu' }, chosen ? `${chosen.name} · ${chosen.size} bytes · ${chosen.type || 'no type'}` : 'not selected'))];
       }) : [];
       const dl = (rows: [string, Node | string][]) => h('dl', { class: 'aw-dl' }, ...rows.flatMap(([k, v]) => [h('dt', {}, k), h('dd', { class: 'aw-mono' }, v)]));

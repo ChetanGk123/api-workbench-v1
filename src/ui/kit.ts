@@ -39,6 +39,8 @@ export interface Kit {
   runEndpoint(id: string): void;
   editEndpoint(id: string | null, extra?: (draft: unknown) => void): void;
   backButton(to: Screen, onClick: () => void): HTMLButtonElement;
+  /** Sub-bar for Settings / Import / Endpoints: Back to the screen they were opened from, icon + title. */
+  subbar(name: IconName, title: string): HTMLElement;
   /** In-panel notice with an optional action; does not restore a minimized panel. */
   notice(text: string, action?: { label: string; run(): void }): void;
   /** Open Test → Results for one run. */
@@ -53,8 +55,12 @@ export const heading = (text: string, cls = 'aw-h') => h('h2', { class: cls, tab
 export const tile = (name: IconName) => h('div', { class: 'aw-tile' }, icon(name));
 export const countBadge = (n = 0) => h('span', { class: 'aw-bd aw-s aw-cnt' }, String(n));
 export const methodBadge = (m: string) => h('span', { class: `aw-bd aw-m aw-${m}` }, m === '*' ? 'ANY' : m);
-export const section = (title: string, ...kids: (Node | null)[]) =>
-  h('section', { class: 'aw-card aw-cp aw-col aw-gap10', 'aria-label': title }, h('h3', { class: 'aw-h aw-h13' }, title), ...kids);
+/** Card section; a [icon, title] pair puts the icon before the title. */
+export const section = (title: string | [IconName, string], ...kids: (Node | null)[]) => {
+  const [name, text] = Array.isArray(title) ? title : [null, title];
+  return h('section', { class: 'aw-card aw-cp aw-col aw-gap10', 'aria-label': text },
+    h('h3', { class: 'aw-h aw-h13 aw-row aw-gap8' }, name ? icon(name, 'aw-i aw-i14 aw-mu') : null, text), ...kids);
+};
 
 export function btn(label: string | (Node | string)[], onClick: () => void, cls = 'aw-btn aw-out aw-sm', attrs: Record<string, string | boolean | undefined> = {}) {
   const b = h('button', { class: cls, type: 'button', ...attrs }, ...(Array.isArray(label) ? label : [label]));
@@ -76,6 +82,24 @@ export function checkbox(label: string, checked: boolean, onChange: (v: boolean)
     onChange(v);
   });
   return b;
+}
+
+/** On/off switch (role=switch) for settings that show or hide something. */
+export function toggle(label: string, on: boolean, onChange: (v: boolean) => void) {
+  const b = h('button', { class: `aw-sw${on ? ' aw-on' : ''}`, type: 'button', role: 'switch', 'aria-checked': String(on), 'aria-label': label }, h('span', { class: 'aw-th' }));
+  b.addEventListener('click', () => {
+    const v = b.getAttribute('aria-checked') !== 'true';
+    b.classList.toggle('aw-on', v);
+    b.setAttribute('aria-checked', String(v));
+    onChange(v);
+  });
+  return b;
+}
+
+/** Native file input wrapped in a label styled as a button: the label opens the picker, the input keeps its name and focus. */
+export function fileButton(input: HTMLInputElement, text = 'Choose file') {
+  input.classList.add('aw-sr');
+  return h('label', { class: 'aw-btn aw-out aw-sm aw-filebtn' }, icon('folder', 'aw-i aw-i14'), text, input);
 }
 
 let seq = 0;

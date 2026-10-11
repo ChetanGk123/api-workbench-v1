@@ -149,7 +149,7 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
     await addMock(page, { path: '/api/mock-target' });
     expect((await send(page, { url: '/api/mock-target' })).body.text).toContain('mocked');
     await settings(page);
-    await page.getByRole('checkbox', { name: 'Show Mock' }).click();
+    await page.getByRole('switch', { name: 'Show Mock' }).click();
     await saved(page);
     const nav = page.getByRole('navigation', { name: 'Modules' });
     await expect(nav.getByRole('button', { name: 'Mock', exact: true })).toBeHidden();
@@ -162,8 +162,8 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
     await page.reload();
     await page.waitForFunction(() => (window as any).fx);
     await launch(page);
-    await expect(page.getByRole('checkbox', { name: 'Show Mock' })).toHaveAttribute('aria-checked', 'false');
-    await page.getByRole('checkbox', { name: 'Show Mock' }).click();
+    await expect(page.getByRole('switch', { name: 'Show Mock' })).toHaveAttribute('aria-checked', 'false');
+    await page.getByRole('switch', { name: 'Show Mock' }).click();
     await tab(page, 'Mock');
     await expect(button(page, 'Activate Mock module')).toBeVisible(); // shown again, still inactive
     expect((await send(page, { url: '/api/mock-target' })).body.text).not.toContain('mocked');
@@ -193,13 +193,13 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
     await send(page, { url: '/api/echo?kept=1' });
     await expect(page.locator('#aw-rec-count')).toContainText('1 of 10 calls');
     await settings(page);
-    await page.getByRole('checkbox', { name: 'Show Recorder' }).click();
+    await page.getByRole('switch', { name: 'Show Recorder' }).click();
     await saved(page);
     await send(page, { url: '/api/echo?late=1' });
     await button(page, 'Import').first().click();
     await expect(page.locator('#aw-rec-hidden')).toBeVisible();
     await settings(page);
-    await page.getByRole('checkbox', { name: 'Show Recorder' }).click();
+    await page.getByRole('switch', { name: 'Show Recorder' }).click();
     await button(page, 'Import').first().click();
     await expect(page.locator('#aw-rec-count')).toContainText('1 of 10 calls');
     await expect(button(page, 'Start recording')).toBeVisible();

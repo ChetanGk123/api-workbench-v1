@@ -72,11 +72,11 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   const importBtn = iconBtn('import', 'Import');
   const minimizeBtn = iconBtn('minus', 'Minimize');
   const closeBtn = iconBtn('x', 'Close API Workbench and remove its hooks');
+  const profBtn = h('button', { class: 'aw-sel aw-profsel', type: 'button', id: 'aw-profile-name' });
   const header = h('header', { class: 'aw-tb' },
     moveBtn,
     h('div', { class: 'aw-brand', title: `API Workbench ${opts.version} · ${rt.origin}` }, 'API Workbench'),
-    h('span', { class: 'aw-xs aw-mu aw-tr aw-profname', id: 'aw-profile-name' }),
-    indicators, h('div', { class: 'aw-grow' }), settingsBtn, importBtn, minimizeBtn, closeBtn);
+    indicators, h('div', { class: 'aw-grow' }), profBtn, settingsBtn, importBtn, minimizeBtn, closeBtn);
 
   const tabBtns = new Map<Screen, { btn: HTMLButtonElement; dot: HTMLElement }>();
   const tl = h('div', { class: 'aw-tl' });
@@ -109,6 +109,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   document.documentElement.append(host);
 
   on(settingsBtn, 'click', () => go('settings'));
+  on(profBtn, 'click', () => go('settings'));
   on(importBtn, 'click', () => go('import'));
   on(minimizeBtn, 'click', minimize);
   on(restoreBtn, 'click', () => restore());
@@ -207,9 +208,13 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   const owner = (): Screen => form ? form.owner : screen === 'detail' ? detailRet?.screen ?? 'home' : screen === 'pauses' ? 'intercept' : screen;
 
   // ---------- navigation and draft guard
+  /** Settings, Import and Endpoints open with a sub-bar whose Back returns here (module tabs stay: G22). */
+  const SUB = new Set<Screen>(['settings', 'import', 'endpoints']);
+  let subBack: Screen = 'home';
   function go(next: Screen) {
     if (screen === 'pauses' && pausesBack?.form) { form = pausesBack.form; pausesBack = null; } // its draft decision comes first
     guard(() => {
+      if (SUB.has(next) && !SUB.has(owner())) subBack = owner();
       form = null;
       screen = next;
       render();
@@ -319,6 +324,8 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   function refreshChrome() {
     const act = activeModules();
     const current = owner();
+    settingsBtn.classList.toggle('aw-on', current === 'settings');
+    importBtn.classList.toggle('aw-on', current === 'import');
     for (const [id, { btn, dot }] of tabBtns) {
       const isOn = id === current;
       btn.classList.toggle('aw-on', isOn);
@@ -343,10 +350,9 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     }));
     launcherState.textContent = [act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active', paused ? `${paused} paused` : '', recording ? 'Recording' : '', ...running.map((e) => `Run ${e.summary.progress.done}/${e.summary.progress.total}`)].filter(Boolean).join(' · ');
     const name = session.agg().profile.name;
-    const prof = header.querySelector('#aw-profile-name')!;
-    prof.textContent = name;
-    prof.setAttribute('title', `Profile: ${name}`);
-    prof.setAttribute('aria-label', `Profile: ${name}`);
+    profBtn.replaceChildren(h('span', {}, name), icon('chevrons', 'aw-i aw-i12'));
+    profBtn.setAttribute('title', `Profile: ${name}`);
+    profBtn.setAttribute('aria-label', `Profile: ${name} — open Settings`);
     const ps = session.persist();
     saveBanner.hidden = !(ps === 'unsaved' || ps === 'conflict' || ps === 'session-only');
     if (!saveBanner.hidden && saveBanner.dataset.state !== ps + session.error()) {
@@ -486,6 +492,10 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     runEndpoint(id) { guard(() => { form = null; testUi.select(id); screen = 'test'; render(); }); },
     editEndpoint(id, extra) { endpointsUi.openEditor(id, here(), extra as Parameters<typeof endpointsUi.openEditor>[2]); },
     backButton: (to, onClick) => backButton(to, onClick),
+    subbar: (name, title) => h('div', { class: 'aw-sub' },
+      h('div', {}, backButton(subBack, () => go(subBack))),
+      h('div', { class: 'aw-row aw-gap6' }, icon(name, 'aw-i aw-i14'), heading(title, 'aw-h aw-h14')),
+      h('div', {})),
     notice(text, action) {
       const close = h('button', { class: 'aw-btn aw-gh aw-ic aw-sm', type: 'button', 'aria-label': 'Dismiss notice' }, icon('x'));
       close.addEventListener('click', () => { noticeEl.hidden = true; });

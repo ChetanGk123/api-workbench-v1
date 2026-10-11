@@ -13,7 +13,7 @@ import { Conflict, readV1 } from '../data/store';
 import type { Capture } from '../net/capture';
 import { exportEnvelope } from '../data/backup';
 import { h, icon } from './dom';
-import { btn, checkbox, download, field, heading, input, methodBadge, section, select, textarea, tile, type Built, type Kit } from './kit';
+import { btn, checkbox, download, field, fileButton, heading, input, methodBadge, section, select, textarea, tile, type Built, type Kit } from './kit';
 
 type Phase = 'empty' | 'reading' | 'parsing' | 'invalid' | 'review' | 'saving' | 'failed' | 'saved';
 type NativeMode = 'new' | 'merge' | 'replace' | 'all';
@@ -574,14 +574,14 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     drawRecorder();
     return {
       nodes: [
-        h('div', { class: 'aw-row aw-gap10' }, kit.backButton('home', () => kit.go('home')), tile('import'), heading('Import')),
+        kit.subbar('import', 'Import'),
         kit.session.agg().profile.settings.hidden.includes('recorder')
           ? h('p', { class: 'aw-hint aw-wrap', id: 'aw-rec-hidden' }, 'The recorder is hidden in Settings → Modules. Its draft is kept; show it again to review or record.')
           : section('Recorder',
           h('p', { class: 'aw-hint aw-wrap' }, 'Captures this frame’s Fetch/XHR calls made after Start, including while the panel is minimized. Earlier calls, workers, other frames and cached responses are not captured. Secrets in headers, query and JSON fields are redacted before they are shown or kept.'),
           recEl),
         section('Source',
-          h('div', { class: 'aw-row aw-gap6 aw-end' }, h('div', { class: 'aw-grow' }, field('Format', fmt)), h('div', {}, fileIn)),
+          h('div', { class: 'aw-row aw-gap6 aw-end' }, h('div', { class: 'aw-grow' }, field('Format', fmt)), fileButton(fileIn)),
           field('Paste', ta, undefined, undefined, `Up to ${IMPORT_MAX_BYTES / 1024 / 1024} MiB. The format is detected from the content. Importing never runs code, reads a file path, fetches a reference or sends a request.`),
           formatHelp(),
           h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },

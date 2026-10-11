@@ -70,7 +70,8 @@ export function createEndpointsUi(kit: Kit) {
 
     return {
       nodes: [
-        h('div', { class: 'aw-row aw-gap10' }, tile('book'), h('div', { class: 'aw-grow' }, h('div', { class: 'aw-row aw-gap8' }, heading('Endpoints'), count), ctx), add),
+        kit.subbar('book', 'Endpoints'),
+        h('div', { class: 'aw-row aw-gap10' }, h('div', { class: 'aw-grow' }, h('div', { class: 'aw-row aw-gap8' }, h('span', { class: 'aw-lbl' }, 'Endpoints'), count), ctx), add),
         h('div', { class: 'aw-row aw-wrapbtns' }, headersBtn, promote, envBtn),
         h('label', { class: 'aw-sr', for: 'aw-ep-filter' }, 'Filter endpoints'), filterIn,
         empty, list, moveHint,

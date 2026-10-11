@@ -5,10 +5,12 @@ import { exportEnvelope } from '../data/backup';
 import { BOUNDS, defaultSettings, HIDEABLE, type Aggregate, type Hideable, type Settings } from '../data/schema';
 import { checkForUpdate, type UpdateResult } from '../data/update';
 import { h, icon } from './dom';
-import { btn, checkbox, download, field, heading, input, section, tile, type Built, type Kit } from './kit';
+import { btn, checkbox, download, field, input, section, toggle, type Built, type Kit } from './kit';
+import type { IconName } from './dom';
 
 export const UPDATE_KEY = 'api-workbench:update:v1';
 const HIDE_LABEL: Record<Hideable, string> = { mock: 'Mock', intercept: 'Intercept (and breakpoints)', route: 'Route', chaos: 'Chaos', recorder: 'Recorder' };
+const HIDE_ICON: Record<Hideable, IconName> = { mock: 'server', intercept: 'shuffle', route: 'route', chaos: 'flame', recorder: 'record' };
 
 export function createSettingsUi(kit: Kit, o: { version: string; updateUrl: string; onProfileChange(): void; clearPreferences(): Promise<void> }) {
   const s = kit.session;
@@ -41,7 +43,7 @@ export function createSettingsUi(kit: Kit, o: { version: string; updateUrl: stri
     const storage = h('div', { class: 'aw-col aw-gap6' });
     const profiles = h('div', { class: 'aw-col aw-gap8' });
     const exportPrev = h('p', { class: 'aw-hint aw-wrap', id: 'aw-export-preview' });
-    const modules = h('div', { class: 'aw-col aw-gap6', id: 'aw-modules' });
+    const modules = h('div', { class: 'aw-col aw-gap10', id: 'aw-modules' });
     const limits = h('div', { class: 'aw-col aw-gap8', id: 'aw-limits' });
     const about = h('div', { class: 'aw-col aw-gap8', id: 'aw-about' });
     let sig = '';
@@ -98,7 +100,8 @@ export function createSettingsUi(kit: Kit, o: { version: string; updateUrl: stri
       const st = s.agg().profile.settings;
       modules.replaceChildren(
         h('p', { class: 'aw-hint aw-wrap aw-m0' }, 'A hidden module has no tab or Home card and no effect on traffic: hiding a rule module deactivates it, and hiding the recorder stops recording (its draft is kept). Saved with this profile.'),
-        ...HIDEABLE.map((m) => h('div', { class: 'aw-chk' }, checkbox(`Show ${HIDE_LABEL[m]}`, !st.hidden.includes(m), (v) => void setHidden(m, !v)), `Show ${HIDE_LABEL[m]}`)),
+        h('ul', { class: 'aw-list aw-modlist' }, ...HIDEABLE.map((m) => h('li', { class: 'aw-row aw-gap8' }, icon(HIDE_ICON[m], 'aw-i aw-i14 aw-mu'),
+          h('span', { class: 'aw-grow aw-lbl' }, HIDE_LABEL[m]), toggle(`Show ${HIDE_LABEL[m]}`, !st.hidden.includes(m), (v) => void setHidden(m, !v))))),
       );
     }
     async function setHidden(m: Hideable, hide: boolean) {
@@ -266,22 +269,22 @@ export function createSettingsUi(kit: Kit, o: { version: string; updateUrl: stri
     drawAbout();
     return {
       nodes: [
-        h('div', { class: 'aw-row aw-gap10' }, tile('settings'), heading('Settings')),
-        section('Storage', storage),
-        section('Profiles', profiles),
-        section('Modules', modules),
-        section('Limits and capture', limits),
-        section('Export',
+        kit.subbar('settings', 'Settings'),
+        section(['save', 'Storage'], storage),
+        section(['user', 'Profiles'], profiles),
+        section(['grid', 'Modules'], modules),
+        section(['sliders', 'Limits and capture'], limits),
+        section(['upload', 'Export'],
           h('div', { class: 'aw-chk' }, checkbox('Include sensitive header values', sensitive, (v) => { sensitive = v; drawExportPreview(); }), 'Include sensitive header values'),
           exportPrev,
           h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' }, btn('Export active profile', () => exportNow('profile')), btn('Export all profiles (backup)', () => exportNow('backup')))),
-        section('Import or restore',
+        section(['import', 'Import or restore'],
           h('p', { class: 'aw-hint aw-wrap' }, 'Profile exports, whole backups, schema 1 data and HAR files are reviewed and imported under Import. Nothing changes until you confirm the review.'),
           h('div', { class: 'aw-row' }, btn([icon('import', 'aw-i aw-i14'), 'Open Import'], () => kit.go('import')))),
-        section('Clear local data',
+        section(['trash', 'Clear local data'],
           h('p', { class: 'aw-hint aw-wrap' }, 'Deletes this version’s profiles, runs, recorder draft, activity and preferences for this site, then starts an empty Default profile.'),
           h('div', { class: 'aw-row' }, btn([icon('trash', 'aw-i aw-i14'), 'Clear local data…'], clearAll, 'aw-btn aw-dst aw-sm'))),
-        section('About', about),
+        section(['info', 'About'], about),
       ],
       refresh,
     };

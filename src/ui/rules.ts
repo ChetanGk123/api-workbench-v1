@@ -220,8 +220,7 @@ export function createRulesUi(kit: Kit, deps: {
       nodes: [
         h('div', { class: 'aw-row aw-gap10' }, tile(MOD[m].icon), heading(MOD[m].title), badgeSlot),
         h('p', { class: 'aw-hint aw-wrap aw-m0' }, MOD[m].about),
-        h('div', { class: 'aw-col aw-gap6 aw-start' }, act, actHint),
-        stats,
+        h('div', { class: 'aw-col aw-gap4' }, h('div', { class: 'aw-row aw-gap10' }, h('div', { class: 'aw-grow aw-xs aw-mu' }, stats), act), actHint),
         ...(presets ? [presets] : []),
         h('div', { class: 'aw-col aw-gap8' }, h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl' }, 'Rules'), ruleCount), list,
           h('div', { class: 'aw-g2' }, addBtn, fromEp.el)),

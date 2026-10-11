@@ -92,3 +92,19 @@
 .aw-srcrow>.aw-select.aw-sm{flex:0 1 150px;min-width:110px}
 .aw-cond{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1.4fr) auto;gap:6px;align-items:center}
 .aw-cardin{border:1px solid var(--aw-zinc-800);border-radius:8px;padding:10px}
+/* Reference alignment: profile chip, sub-bar screens, switches, disclosure chevrons. */
+.aw-profsel{width:auto;max-width:140px;height:28px;padding:0 8px;gap:6px;font-size:12px;flex:0 1 auto}
+.aw-tb .aw-gh.aw-on{background:var(--aw-zinc-800);color:var(--aw-zinc-50)}
+.aw-h14{font-size:14px}
+.aw-panel .aw-body>.aw-sub:first-child{position:sticky;top:-12px;z-index:1;margin:-12px -12px 0;background:var(--aw-zinc-950)}
+.aw-sub .aw-back{justify-self:start}
+.aw-sw{position:relative}
+.aw-sw:focus-visible{outline:2px solid var(--aw-zinc-400);outline-offset:2px}
+.aw-modlist{list-style:none;margin:0;padding:0}
+.aw-modlist>li{padding:8px 0}.aw-modlist>li:first-child{padding-top:0}.aw-modlist>li:last-child{padding-bottom:0}
+.aw-root summary{list-style:none;display:flex;align-items:center;gap:6px}
+.aw-root summary::-webkit-details-marker{display:none}
+.aw-root summary::before{content:'';width:5px;height:5px;margin:0 2px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);flex-shrink:0;transition:transform .15s}
+.aw-root details[open]>summary::before{transform:rotate(45deg)}
+.aw-filebtn{position:relative;flex-shrink:0}
+.aw-filebtn:focus-within{outline:2px solid var(--aw-zinc-400);outline-offset:1px}
