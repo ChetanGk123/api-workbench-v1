@@ -72,7 +72,10 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   const importBtn = iconBtn('import', 'Import');
   const minimizeBtn = iconBtn('minus', 'Minimize');
   const closeBtn = iconBtn('x', 'Close API Workbench and remove its hooks');
-  const profBtn = h('button', { class: 'aw-sel aw-profsel', type: 'button', id: 'aw-profile-name' });
+  // Profile chip: the visible name plus a transparent native select on top (disabled with one profile).
+  const profName = h('span', { id: 'aw-profile-name' });
+  const profSel = h('select', { class: 'aw-profpick', id: 'aw-profile-switch', 'aria-label': 'Switch active profile' });
+  const profBtn = h('div', { class: 'aw-sel aw-profsel' }, profName, icon('chevrons', 'aw-i aw-i12'), profSel);
   const header = h('header', { class: 'aw-tb' },
     moveBtn,
     h('div', { class: 'aw-brand', title: `API Workbench ${opts.version} · ${rt.origin}` }, 'API Workbench'),
@@ -109,7 +112,16 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   document.documentElement.append(host);
 
   on(settingsBtn, 'click', () => go('settings'));
-  on(profBtn, 'click', () => go('settings'));
+  on(profSel, 'change', () => {
+    const id = profSel.value;
+    profSel.value = session.agg().profile.id; // shown again once the switch lands
+    guard(() => { // an open editor belongs to the old profile
+      const f = form;
+      form = null;
+      if (f) goBack(f.ret);
+      void settingsUi.switchTo(id);
+    });
+  });
   on(importBtn, 'click', () => go('import'));
   on(minimizeBtn, 'click', minimize);
   on(restoreBtn, 'click', () => restore());
@@ -199,7 +211,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     saveGeo();
   });
   ro.observe(panel);
-  on(window, 'resize', () => place());
+  on(window, 'resize', () => { place(); if (dialog.open) centerDialog(); });
 
   // ---------- config helpers
   function announce(text: string) { status.textContent = text; }
@@ -272,6 +284,15 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     });
   }
 
+  /** Center the dialog over the visible surface (panel or launcher), not the host page; kept in the viewport. */
+  function centerDialog() {
+    const r = (launcher.hidden ? panel : launcher).getBoundingClientRect();
+    const d = dialog.getBoundingClientRect();
+    const { vw, vh } = viewport();
+    dialog.style.left = `${Math.max(8, Math.min(vw - d.width - 8, r.left + (r.width - d.width) / 2))}px`;
+    dialog.style.top = `${Math.max(8, Math.min(vh - d.height - 8, r.top + (r.height - d.height) / 2))}px`;
+  }
+
   function ask(text: string, choices: { label: string; cls: string; value: string }[]): Promise<string> {
     const back = root.activeElement as HTMLElement | null;
     return new Promise((resolve) => {
@@ -292,6 +313,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       );
       dialog.addEventListener('cancel', onCancel);
       dialog.showModal();
+      centerDialog();
       (dialog.querySelector('button') as HTMLElement).focus();
     });
   }
@@ -350,9 +372,16 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     }));
     launcherState.textContent = [act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active', paused ? `${paused} paused` : '', recording ? 'Recording' : '', ...running.map((e) => `Run ${e.summary.progress.done}/${e.summary.progress.total}`)].filter(Boolean).join(' · ');
     const name = session.agg().profile.name;
-    profBtn.replaceChildren(h('span', {}, name), icon('chevrons', 'aw-i aw-i12'));
-    profBtn.setAttribute('title', `Profile: ${name}`);
-    profBtn.setAttribute('aria-label', `Profile: ${name} — open Settings`);
+    const all = session.all();
+    profName.textContent = name;
+    profBtn.title = all.length > 1 ? `Profile: ${name} — switch profile` : `Profile: ${name}`;
+    const sig = JSON.stringify(all.map((a) => [a.profile.id, a.profile.name]));
+    if (profSel.dataset.sig !== sig) {
+      profSel.dataset.sig = sig;
+      profSel.replaceChildren(...all.map((a) => h('option', { value: a.profile.id }, a.profile.name)));
+    }
+    profSel.value = session.agg().profile.id;
+    profSel.disabled = all.length < 2;
     const ps = session.persist();
     saveBanner.hidden = !(ps === 'unsaved' || ps === 'conflict' || ps === 'session-only');
     if (!saveBanner.hidden && saveBanner.dataset.state !== ps + session.error()) {

@@ -67,6 +67,9 @@ test.describe('navigation and drafts (S00.1/S00.2, G22)', () => {
     await page.getByRole('region', { name: 'Page Routing' }).getByRole('button', { name: 'New Route rule' }).click();
     await page.locator('#aw-route-dest').fill('http://127.0.0.1:1');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    const d = (await page.getByRole('dialog').boundingBox())!, p = await box(page); // centered on the panel, not the page
+    expect(Math.abs(d.x + d.width / 2 - (p.x + p.width / 2))).toBeLessThan(2);
+    expect(Math.abs(d.y + d.height / 2 - (p.y + p.height / 2))).toBeLessThan(2);
     await page.getByRole('button', { name: 'Keep editing' }).click();
     await expect(page.locator('#aw-route-dest')).toHaveValue('http://127.0.0.1:1');
     await page.getByRole('button', { name: 'Back to Home' }).click();

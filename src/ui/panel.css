@@ -37,7 +37,7 @@
 .aw-qa{cursor:pointer;font-family:inherit}
 .aw-launcher{flex-direction:row;align-items:center;gap:8px;height:52px;padding:0 8px 0 12px;border-radius:14px;max-width:calc(100vw - 32px);min-width:240px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .aw-vsep{width:1px;height:20px;background:var(--aw-zinc-800);flex-shrink:0}
-.aw-dialog{background:var(--aw-zinc-925);color:var(--aw-zinc-50);border:1px solid var(--aw-zinc-800);border-radius:10px;padding:16px;max-width:360px;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:13px}
+.aw-dialog{position:fixed;inset:auto;margin:0;max-width:min(360px,calc(100vw - 16px));background:var(--aw-zinc-925);color:var(--aw-zinc-50);border:1px solid var(--aw-zinc-800);border-radius:10px;padding:16px;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:13px}
 .aw-dialog::backdrop{background:rgba(0,0,0,.5)}
 .aw-dialog-text{margin:0 0 14px}
 .aw-root button:focus-visible,.aw-root input:focus-visible,.aw-root select:focus-visible,.aw-root textarea:focus-visible,.aw-dialog button:focus-visible{outline:2px solid var(--aw-zinc-400);outline-offset:1px}
@@ -108,3 +108,8 @@
 .aw-root details[open]>summary::before{transform:rotate(45deg)}
 .aw-filebtn{position:relative;flex-shrink:0}
 .aw-filebtn:focus-within{outline:2px solid var(--aw-zinc-400);outline-offset:1px}
+.aw-profsel{position:relative}
+.aw-profpick{position:absolute;inset:0;width:100%;opacity:0;cursor:pointer;font:inherit}
+.aw-profsel:has(.aw-profpick:disabled){cursor:default}
+.aw-profsel:has(.aw-profpick:disabled)>.aw-i{display:none}
+.aw-profsel:has(.aw-profpick:focus-visible){outline:2px solid var(--aw-zinc-400);outline-offset:1px}

@@ -39,6 +39,12 @@ export function createSettingsUi(kit: Kit, o: { version: string; updateUrl: stri
     return true;
   }
 
+  async function switchTo(id: string) {
+    if (id === s.agg().profile.id) return kit.announce('That profile is already active.');
+    o.onProfileChange();
+    if (await guarded('Switch', () => s.switchTo(id))) kit.announce(`Active profile: ${s.agg().profile.name}. Running modules keep their rules (they are not profile data yet).`);
+  }
+
   function screen(): Built {
     const storage = h('div', { class: 'aw-col aw-gap6' });
     const profiles = h('div', { class: 'aw-col aw-gap8' });
@@ -217,12 +223,6 @@ export function createSettingsUi(kit: Kit, o: { version: string; updateUrl: stri
         : redacted.length ? `Redacted by default (re-entry needed after import): ${redacted.join('; ')}.` : 'No sensitive header values found to redact. Exports contain definitions and source references, never current tokens or keys.';
     }
 
-    async function switchTo(id: string) {
-      if (id === s.agg().profile.id) return kit.announce('That profile is already active.');
-      o.onProfileChange();
-      if (await guarded('Switch', () => s.switchTo(id))) kit.announce(`Active profile: ${s.agg().profile.name}. Running modules keep their rules (they are not profile data yet).`);
-    }
-
     async function create(name: string, copy: boolean) {
       if (!name.trim()) return kit.announce('Enter a name for the new profile.');
       o.onProfileChange();
@@ -290,5 +290,5 @@ export function createSettingsUi(kit: Kit, o: { version: string; updateUrl: stri
     };
   }
 
-  return { screen };
+  return { screen, switchTo };
 }

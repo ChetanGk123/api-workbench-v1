@@ -350,6 +350,11 @@ test.describe('storage, profiles, backup and migration (G21)', () => {
     await page.locator('#aw-prof-select').selectOption({ label: 'Staging · 1 endpoint' });
     await button(page, 'Switch to the selected profile').click();
     await expect(page.locator('#aw-profile-name')).toHaveText('Staging');
+    await page.locator('#aw-profile-switch').selectOption({ label: 'Empty' }); // header dropdown switches too
+    await expect(page.locator('#aw-profile-name')).toHaveText('Empty');
+    await expect(page.locator('#aw-prof-select')).toHaveValue(await page.locator('#aw-profile-switch').inputValue());
+    await page.locator('#aw-profile-switch').selectOption({ label: 'Staging' });
+    await expect(page.locator('#aw-profile-name')).toHaveText('Staging');
     for (let left = 3; left > 0; left--) { // Delete applies to the active profile
       const name = (await page.locator('#aw-profile-name').textContent())!;
       await page.getByRole('button', { name: `Delete ${name}`, exact: true }).click();
@@ -358,6 +363,7 @@ test.describe('storage, profiles, backup and migration (G21)', () => {
     }
     await expect(page.locator('#aw-profile-name')).toHaveText('Default');
     await expect(page.locator('#aw-prof-select option')).toHaveText(['Default · 0 endpoints']);
+    await expect(page.locator('#aw-profile-switch')).toBeDisabled(); // nothing to switch to
   });
 
   test('backup export → clear → restore round-trip; redacted by default; future schema refused', async ({ page }) => {
