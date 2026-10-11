@@ -12,5 +12,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tests/core.spec.ts"]
+  "include": ["src", "tests/core.spec.ts", "tests/data.core.spec.ts"]
 }

@@ -10,7 +10,7 @@ Once must not run the whole plan unexpectedly, silently retry writes after 401/t
 
 ## Task S07.1 — Build endpoint selection and request preparation preview
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** effective values, sources and preview freshness. **Status:** NOT STARTED. **Depends on:** S04, request preparation, S22 definitions.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** effective values, sources and preview freshness. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)); auth refresh/signing preparation are R6. **Depends on:** S04, request preparation, S22 definitions.
 
 1. Select endpoint by stable ID with display name/method/service; entering via row Run selects that endpoint.
 2. Show effective origin/credentials/header precedence/body kind and masked required bindings/files.
@@ -22,7 +22,7 @@ Once must not run the whole plan unexpectedly, silently retry writes after 401/t
 
 ## Task S07.2 — Execute and cancel through one tester path
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** auth freshness, cancellation and exactly-once dispatch. **Status:** NOT STARTED. **Depends on:** S07.1, NETWORK/TESTER engine.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** auth freshness, cancellation and exactly-once dispatch. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)); auth refresh/read-only retry (item 3) is R6. **Depends on:** S07.1, NETWORK/TESTER engine.
 
 1. Validate/re-resolve at dispatch and capture endpoint/config identity; prevent duplicate Run while owned request pending.
 2. Dispatch via captured transport or shared pipeline according to visible mode; tag tester source internally only.
@@ -34,7 +34,7 @@ Once must not run the whole plan unexpectedly, silently retry writes after 401/t
 
 ## Task S07.3 — Present results and useful follow-up actions
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** straightforward presentation over validated results. **Status:** NOT STARTED. **Depends on:** S07.2, S21 detail, check/sample commands.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** straightforward presentation over validated results. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)); Once history (item 4) is R6. **Depends on:** S07.2, S21 detail, check/sample commands.
 
 1. Render the identified latest result body/headers/status without mixing check report into JSON content.
 2. Label truncated/unreadable/binary data; show failed/not-evaluated checks and timing meaning/source.

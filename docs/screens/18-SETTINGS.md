@@ -12,7 +12,7 @@ Must not duplicate confusing Save meanings, silently stop work/drop drafts on sw
 
 ## Task S18.1 — Implement profile and whole-origin backup workflows
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** migration, coherent references and durable replacement. **Status:** NOT STARTED. **Depends on:** DATA schema/transactions, S00.2, S05.3.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** migration, coherent references and durable replacement. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)). **Depends on:** DATA schema/transactions, S00.2, S05.3.
 
 1. Use clear Save/Rename/Save copy scope and stable profile identity; explicit switch preserves outgoing profile and stops old work safely.
 2. Delete previews affected endpoints/rules/plans; last-profile case creates explicit safe empty config rather than dangling pointer.
@@ -24,7 +24,7 @@ Must not duplicate confusing Save meanings, silently stop work/drop drafts on sw
 
 ## Task S18.2 — Wire module/resource/context settings and failure state
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** settings must change resources, not just UI. **Status:** NOT STARTED. **Depends on:** S18.1, lifecycle/body/recorder policy.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** settings must change resources, not just UI. **Status:** PARTIAL: body-check limit and Unsaved/Retry/Export state only ([R2 evidence](../R2_REPORT.md)). **Depends on:** S18.1, lifecycle/body/recorder policy.
 
 1. Bind module visibility to navigation/card and engine selection; switching Recorder off ends capture and retains draft.
 2. Build numeric bounded limits/reset defaults with effective readback and overflow explanation.
@@ -36,7 +36,7 @@ Must not duplicate confusing Save meanings, silently stop work/drop drafts on sw
 
 ## Task S18.3 — Implement About, data clearing and data-only update
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** user data loss and stale update artifacts. **Status:** NOT STARTED. **Depends on:** S18.1, deployed manifest/bookmark validation.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** user data loss and stale update artifacts. **Status:** PARTIAL: Clear local data and About version/site only; update check NOT STARTED ([R2 evidence](../R2_REPORT.md)). **Depends on:** S18.1, deployed manifest/bookmark validation.
 
 1. About reports bundled version/origin/storage/last-known published comparison; Check only starts on explicit click using captured transport.
 2. Bound manifest/bookmark reads, validate version/hash/text consistency, never execute downloaded text.

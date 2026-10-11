@@ -1,6 +1,6 @@
 # Delivery plan and first assigned slice
 
-Status: clean rebuild in this repository. R0 and R1 are implemented (75 counted Chrome/core tests pass); saved-bookmark, Edge, restart, real-zoom and resource gates are NOT RUN, so no slice is complete. See [R0 evidence](R0_REPORT.md) and [R1 evidence](R1_REPORT.md). R2 is next once assigned. The earlier `rebuild/v2` reports live in [history/](history/).
+Status: clean rebuild in this repository. R0, R1 and R2 are implemented (110 counted Chrome/core tests pass); saved-bookmark, Edge, restart, real-zoom, real-quota and resource gates are NOT RUN, so no slice is complete. See [R0 evidence](R0_REPORT.md), [R1 evidence](R1_REPORT.md) and [R2 evidence](R2_REPORT.md). The 2.0.0-r2 bookmark is 234K characters; the saved-bookmark size experiment should run before R3. R3 is next once assigned. The earlier `rebuild/v2` reports live in [history/](history/).
 
 Use **R** labels to avoid rewriting the current repository's M0–M10 history. Every internal slice remains pre-release until full v1 and real-browser gates pass. No slice is an excuse to drop a later feature.
 

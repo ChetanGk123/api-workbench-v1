@@ -12,7 +12,7 @@ This screen must not duplicate every global header into each endpoint, silently 
 
 ## Task S03.1 — Implement collection navigation and CRUD actions
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** stable list identity and familiar domain commands. **Status:** NOT STARTED. **Depends on:** S00.1/S00.2, validated endpoint store.
+**Suggested model:** GPT-6.1 Sol. **Effort:** medium. **Why:** stable list identity and familiar domain commands. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)). **Depends on:** S00.1/S00.2, validated endpoint store.
 
 1. Build a filtered view by name/alias/method/host/path; group by service where useful, using endpoint IDs as keys.
 2. Carry list return context to editor/Once/imported selection; focus the originating row when it remains visible.
@@ -24,7 +24,7 @@ This screen must not duplicate every global header into each endpoint, silently 
 
 ## Task S03.2 — Implement global headers, presets and Promote common
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** precedence and multi-endpoint changes require atomic review. **Status:** NOT STARTED. **Depends on:** header validator, persistence commands.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** precedence and multi-endpoint changes require atomic review. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)). **Depends on:** header validator, persistence commands.
 
 1. Support ordered editable header rows, explicit removals, case-insensitive keys and saved/unsaved feedback.
 2. Provide data-only presets such as JSON Accept/Content-Type and configured CSRF binding; preview collisions and required context.
@@ -36,7 +36,7 @@ This screen must not duplicate every global header into each endpoint, silently 
 
 ## Task S03.3 — Implement environments and dependency analysis
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** origin/reference changes can misdirect requests. **Status:** NOT STARTED. **Depends on:** DATA model and TESTER graph.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** origin/reference changes can misdirect requests. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)); Re-analyze/DAG (item 4) is R6. **Depends on:** DATA model and TESTER graph.
 
 1. Edit validated host-key→origin mappings per environment; reject schemes/paths/credentials not supported as origins.
 2. Preview affected endpoint destinations when switching/changing mappings; preserve absolute URLs until explicitly converted.

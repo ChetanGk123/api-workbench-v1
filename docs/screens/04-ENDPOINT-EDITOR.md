@@ -12,7 +12,7 @@ Must not auto-format a signed/raw body, silently change body type, set multipart
 
 ## Task S04.1 — Build draft identity and request fields
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** field validation, alias references and safe saves. **Status:** NOT STARTED. **Depends on:** S00.2, S03.1, DATA commands.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** field validation, alias references and safe saves. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)). **Depends on:** S00.2, S03.1, DATA commands.
 
 1. Clone the endpoint into a draft tied to profile/entity/base revision; editor opened from Record uses candidate callbacks rather than saved mutation.
 2. Build labelled Name/Alias/method/host/path/query/credentials controls and resolved-origin preview.
@@ -24,7 +24,7 @@ Must not auto-format a signed/raw body, silently change body type, set multipart
 
 ## Task S04.2 — Implement every body kind and expression insertion
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** exact serialization, files and binding/type semantics. **Status:** NOT STARTED. **Depends on:** S04.1, S19.2 and preparation service.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** exact serialization, files and binding/type semantics. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)); expression insertion (item 4) is R6. **Depends on:** S04.1, S19.2 and preparation service.
 
 1. Keep raw text/JSON unchanged unless Format JSON is explicitly clicked; parser errors reference location without deleting input.
 2. Use ordered urlencoded/multipart row editors, repeated fields and runtime file selection with filename/size/type.
@@ -36,7 +36,7 @@ Must not auto-format a signed/raw body, silently change body type, set multipart
 
 ## Task S04.3 — Build response samples and declarative checks
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** false-positive tests and incomplete samples are material errors. **Status:** NOT STARTED. **Depends on:** S04.1, TESTER check evaluator.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** false-positive tests and incomplete samples are material errors. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)). **Depends on:** S04.1, TESTER check evaluator.
 
 1. Offer sample editing/explicit formatting with original status/headers/provenance and capture/redaction labels.
 2. Build status/range, header, body-contains, JSON path/type/equality and duration checks with validated bounds.

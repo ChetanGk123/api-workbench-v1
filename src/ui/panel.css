@@ -60,3 +60,15 @@
 .aw-dl dt{color:var(--aw-zinc-400)}
 .aw-dl dd{margin:0;min-width:0;overflow-wrap:anywhere;color:var(--aw-zinc-50)}
 .aw-detail h3{margin:0}
+/* R2 workspaces: endpoints, editors, Once, settings. */
+.aw-wrapbtns{flex-wrap:wrap}
+.aw-profname{max-width:120px;flex-shrink:1;min-width:0}
+.aw-eplist{list-style:none;margin:0;padding:0}
+.aw-eprow{align-items:flex-start}
+.aw-endcol{align-items:flex-end;flex-shrink:0}
+.aw-checkrow{flex-wrap:wrap}.aw-checkrow .aw-in{flex:1 1 90px;min-width:0}
+.aw-row>.aw-in{min-width:0;flex:1 1 0}
+.aw-select.aw-sm{height:28px;font-size:12px;flex:0 1 auto}
+.aw-pre{margin:0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.aw-root details summary{cursor:pointer}
+.aw-alert strong{font-weight:600}

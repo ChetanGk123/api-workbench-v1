@@ -4,6 +4,7 @@ import { createRuntime } from './net/runtime';
 import { createFetch } from './net/fetch';
 import { captureXhr, createXhr } from './net/xhr';
 import { mountPanel } from './ui/panel';
+import { createSession } from './data/store';
 
 const KEY = Symbol.for('api-workbench');
 /** Registry key of the previous (v1) implementation; never stack two interception layers. */
@@ -24,10 +25,12 @@ interface Instance {
   }
 
   const rt = createRuntime(location.origin, defaultConfig());
+  const session = createSession();
 
   if (w[LEGACY_KEY]) {
     rt.inert = true;
-    const p = mountPanel(rt, { version: __VERSION__, onClose: () => p.destroy() });
+    // No hooks: Once still works, and "Apply rules" has no pipeline to enter, so it is the native fetch too.
+    const p = mountPanel(rt, { version: __VERSION__, session, fetchers: { direct: window.fetch, rules: window.fetch }, onClose: () => p.destroy() });
     p.notice('An older API Workbench is running on this page. Close it and reload before launching this version. No hooks were installed.');
     return;
   }
@@ -52,7 +55,7 @@ interface Instance {
     delete w[KEY];
   };
 
-  const panel = mountPanel(rt, { version: __VERSION__, onClose: close });
+  const panel = mountPanel(rt, { version: __VERSION__, session, fetchers: { direct: nativeFetch, rules: awFetch }, onClose: close });
   const instance: Instance = {
     version: __VERSION__,
     relaunch(version) {

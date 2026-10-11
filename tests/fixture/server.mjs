@@ -26,7 +26,7 @@ function cors(req, res) {
   if (o && ORIGINS.has(o)) {
     res.setHeader('access-control-allow-origin', o);
     res.setHeader('access-control-allow-credentials', 'true');
-    res.setHeader('access-control-allow-headers', 'content-type, authorization, x-test, x-signature');
+    res.setHeader('access-control-allow-headers', 'content-type, authorization, x-test, x-signature, x-xsrf-token');
     res.setHeader('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, HEAD');
     res.setHeader('access-control-expose-headers', 'x-served-by');
   }
@@ -140,6 +140,8 @@ function handler(name) {
         'content-type': req.headers['content-type'] ?? null,
         'x-test': req.headers['x-test'] ?? null,
         'x-signature': req.headers['x-signature'] ?? null,
+        'x-xsrf-token': req.headers['x-xsrf-token'] ?? null,
+        accept: req.headers.accept ?? null,
       },
       session: cookies(req).session ?? null,
       bodyBytes: bytes.length,

@@ -39,8 +39,8 @@ const forbidden = [
   [/\.innerHTML\s*=|insertAdjacentHTML|document\.write/, 'HTML string injection'],
 ];
 for (const [re, label] of forbidden) if (re.test(min)) failures.push(`forbidden construct: ${label}`);
-// Literal strings only: the SVG namespace and the reference UI's placeholder example. Never fetched.
-const ALLOWED_URL_TEXT = new Set(['http://www.w3.org/2000/svg', 'http://localhost:8080']);
+// Literal strings only: the SVG namespace and placeholder/example text. Never fetched.
+const ALLOWED_URL_TEXT = new Set(['http://www.w3.org/2000/svg', 'http://localhost:8080', 'https://api.example.com', 'https://api.example.com/path']);
 const urls = (min.match(/https?:\/\/[^\s"'`)]+/g) ?? []).filter((u) => !ALLOWED_URL_TEXT.has(u));
 if (urls.length) failures.push(`unexpected URLs in bundle: ${urls.join(', ')}`);
 
@@ -77,7 +77,7 @@ table{border-collapse:collapse}td{padding:2px 12px 2px 0}code{font-family:ui-mon
 </style></head><body><main>
 <h1>API Workbench <span class="mu">${esc(version)}</span></h1>
 <p>A browser-local tool for testing the current page's Fetch/XHR traffic. Everything runs from the bookmark itself: no extension, server, or downloaded code.</p>
-<p><strong>R0 build.</strong> Mock, route and response-text transform for one endpoint path, with request activity. Later features are not part of this build.</p>
+<p><strong>Internal R2 build.</strong> Mock, route and response-text transform for one endpoint path with request details; saved endpoints, global headers and environments, Test → Once, profiles and backup/restore. Plans, recorder, importers, chaos and breakpoints are not part of this build.</p>
 <a class="bm" id="bookmark" href="${esc(bookmark)}">API Workbench ${esc(version)}</a>
 <div class="card"><strong>Install</strong><ol>
 <li>Show the bookmarks bar (Ctrl/⌘+Shift+B).</li>

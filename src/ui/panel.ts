@@ -1,13 +1,18 @@
 // Workbench panel following design/reference/screens: title bar, six module tabs, Home cards,
 // Mock/Intercept/Route screens with rule editors, traffic lists, request detail and the minimized launcher.
-// Only R0/R1 capabilities are wired; later modules state that they are not in this build.
+// R0/R1 rule modules plus R2 Endpoints, Test → Once and Settings; later modules state that they are not in this build.
 import {
   LIMITS, METHODS, newInterceptRule, newMockRule, newRouteRule, validateInterceptRule, validateMockRule, validateRouteRule,
   type Config, type Errors, type InterceptRule, type MockRule, type Module, type RouteRule,
 } from '../net/plan';
 import type { ReqRecord, Runtime } from '../net/runtime';
+import type { Session } from '../data/store';
 import { h, icon, type IconName } from './dom';
-import { clampPos, MIN_SIZE, readGeometry, writeGeometry, type Pos } from './geometry';
+import { createEndpointsUi } from './endpoints';
+import { clampPos, GEOMETRY_KEY, MIN_SIZE, readGeometry, writeGeometry, type Pos } from './geometry';
+import { checkbox, countBadge, heading, methodBadge, NAME, tile, type Built, type Form, type Kit, type Ret, type Screen } from './kit';
+import { createSettingsUi } from './settings';
+import { createTestUi } from './test';
 import themeCss from '../../design/reference/aw-theme.css';
 import panelCss from './panel.css';
 
@@ -18,9 +23,6 @@ export interface Panel {
 }
 
 type RuleOf = { mock: MockRule; intercept: InterceptRule; route: RouteRule };
-type Screen = 'home' | 'test' | Module | 'chaos' | 'endpoints' | 'import' | 'settings' | 'detail';
-/** Where Back goes, and what to put back there: scroll positions and the focused row/control key. */
-interface Ret { screen: Screen; scroll: number; listScroll: number; focus: string | null }
 interface Editor<M extends Module = Module> {
   module: M;
   draft: RuleOf[M];
@@ -43,18 +45,15 @@ const TABS: { id: Screen; label: string; icon: IconName }[] = [
   { id: 'route', label: 'Route', icon: 'route' },
   { id: 'chaos', label: 'Chaos', icon: 'flame' },
 ];
-const NAME: Record<Screen, string> = { home: 'Home', test: 'Test', mock: 'Mock', intercept: 'Intercept', route: 'Route', chaos: 'Chaos', endpoints: 'Endpoints', import: 'Import', settings: 'Settings', detail: 'request' };
 const LATER: Partial<Record<Screen, { title: string; icon: IconName; text: string }>> = {
-  test: { title: 'API Tester', icon: 'flask', text: 'Saved endpoints, Once and plans are not in this build. Once arrives with endpoints (R2); plans and results follow in R6.' },
   chaos: { title: 'Chaos Engineering', icon: 'flame', text: 'Latency, faults and replay rules are not in this build. They arrive with the rule modules (R4).' },
-  endpoints: { title: 'Endpoints', icon: 'book', text: 'Saved endpoints, headers and environments are not in this build. They arrive in R2.' },
-  import: { title: 'Import', icon: 'import', text: 'Recorder, native and HAR import arrive in R3; Swagger/OpenAPI/Postman/cURL/fetch in R7.' },
-  settings: { title: 'Settings', icon: 'settings', text: 'Profiles, storage, limits and backup arrive in R2. This build keeps rules for the current page session only; reload clears them. Panel position and size are remembered for this site.' },
+  import: { title: 'Import', icon: 'import', text: 'Recorder, native and HAR import arrive in R3; Swagger/OpenAPI/Postman/cURL/fetch in R7. Profile exports and backups are imported under Settings.' },
 };
 const SHOWN = 50;
 const STEP = 16;
 
-export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void }): Panel {
+export function mountPanel(rt: Runtime, opts: { version: string; session: Session; fetchers: Kit['fetchers']; onClose(): void }): Panel {
+  const session = opts.session;
   const life = new AbortController();
   const on = <E extends Event = Event>(el: EventTarget, type: string, fn: (e: E) => void) => el.addEventListener(type, fn as EventListener, { signal: life.signal });
 
@@ -73,6 +72,8 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   // ---------- view state
   let screen: Screen = 'home';
   let editor: Editor | null = null;
+  /** Open R2 workspace draft (endpoint, headers, environments…); shares the rule editor's dirty guard. */
+  let form: Form | null = null;
   let live: (() => void) | null = null;
   let follow = true;
   let filterText = '';
@@ -91,6 +92,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   const header = h('header', { class: 'aw-tb' },
     moveBtn,
     h('div', { class: 'aw-brand', title: `API Workbench ${opts.version} · ${rt.origin}` }, 'API Workbench'),
+    h('span', { class: 'aw-xs aw-mu aw-tr aw-profname', id: 'aw-profile-name' }),
     indicators, h('div', { class: 'aw-grow' }), settingsBtn, importBtn, minimizeBtn, closeBtn);
 
   const tabBtns = new Map<Screen, { btn: HTMLButtonElement; dot: HTMLElement }>();
@@ -104,9 +106,10 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   }
   const nav = h('nav', { class: 'aw-tabs', 'aria-label': 'Modules' }, tl);
   const noticeEl = h('div', { class: 'aw-alert aw-notice', role: 'status', hidden: true });
+  const saveBanner = h('div', { class: 'aw-alert aw-notice aw-row aw-gap6', role: 'status', id: 'aw-save-banner', hidden: true });
   const main = h('main', { class: 'aw-body' });
   const foot = h('footer', { class: 'aw-foot', hidden: true });
-  const panel = h('div', { class: 'aw-root aw-panel', role: 'region', 'aria-label': 'API Workbench' }, header, nav, noticeEl, main, foot);
+  const panel = h('div', { class: 'aw-root aw-panel', role: 'region', 'aria-label': 'API Workbench' }, header, nav, noticeEl, saveBanner, main, foot);
   const status = h('div', { class: 'aw-sr', role: 'status', 'aria-live': 'polite' });
 
   // Launcher (Minimized.html)
@@ -132,11 +135,11 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     guard(opts.onClose);
   });
   on(panel, 'keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && editor && screen !== 'detail' && !dialog.open) {
+    if (e.key === 'Escape' && (editor || form) && screen !== 'detail' && !dialog.open) {
       // Prevent the browser's Escape default from closing the dialog we are about to open.
       e.preventDefault();
       e.stopPropagation();
-      setTimeout(leaveEditor);
+      setTimeout(() => (form ? leaveForm() : leaveEditor()));
     }
   });
   for (const region of [main, foot]) on(region, 'focusin', (e: FocusEvent) => { lastFocus = e.target as HTMLElement; });
@@ -222,12 +225,13 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
   function announce(text: string) { status.textContent = text; }
   const activeModules = () => (['mock', 'intercept', 'route'] as Module[]).filter((m) => cfg()[m].active);
   /** The tab that owns the current view (an editor or request detail belongs to where it was opened). */
-  const owner = (): Screen => editor ? editor.module : screen === 'detail' ? detailRet?.screen ?? 'home' : screen;
+  const owner = (): Screen => form ? form.owner : editor ? editor.module : screen === 'detail' ? detailRet?.screen ?? 'home' : screen;
 
   // ---------- navigation and draft guard
   function go(next: Screen) {
     guard(() => {
       editor = null;
+      form = null;
       screen = next;
       render();
     });
@@ -262,21 +266,31 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     if (ed) guard(() => { editor = null; goBack(ed.ret); });
   }
 
+  function leaveForm() {
+    const f = form;
+    if (f) guard(() => { form = null; goBack(f.ret); });
+  }
+
   function dirty() {
-    return !!editor && JSON.stringify(editor.draft) !== editor.base;
+    return (!!editor && JSON.stringify(editor.draft) !== editor.base) || !!form?.dirty();
   }
 
   function guard(next: () => void) {
     if (!dirty()) return next();
-    ask('This rule has unsaved changes.', [
+    const f = form;
+    ask(f ? 'These changes are not saved.' : 'This rule has unsaved changes.', [
       { label: 'Keep editing', cls: 'aw-out', value: 'keep' },
       { label: 'Discard', cls: 'aw-dst', value: 'discard' },
       { label: 'Save', cls: 'aw-pri', value: 'save' },
-    ]).then((v) => {
+    ]).then(async (v) => {
       if (v === 'discard') {
         editor = null;
+        form = null;
         next();
-      } else if (v === 'save' && commitEditor()) next();
+      } else if (v === 'save' && (f ? await f.save() : commitEditor())) {
+        form = null;
+        next();
+      }
     });
   }
 
@@ -311,8 +325,12 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     lastFocus = null;
     foot.replaceChildren();
     foot.hidden = true;
-    const built = editor && editor.module !== 'route' ? editorScreen(editor as Editor<'mock' | 'intercept'>)
+    const built = form ? form.build()
+      : editor && editor.module !== 'route' ? editorScreen(editor as Editor<'mock' | 'intercept'>)
       : screen === 'home' ? homeScreen()
+      : screen === 'test' ? testUi.screen()
+      : screen === 'endpoints' ? endpointsUi.screen()
+      : screen === 'settings' ? settingsUi.screen()
       : screen === 'mock' || screen === 'intercept' ? moduleScreen(screen)
       : screen === 'route' ? routeScreen()
       : screen === 'detail' ? detailScreen()
@@ -341,7 +359,22 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
       return b;
     }));
     launcherState.textContent = act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active';
-    if (!editor || editor.module === 'route') {
+    const name = session.agg().profile.name;
+    const prof = header.querySelector('#aw-profile-name')!;
+    prof.textContent = name;
+    prof.setAttribute('title', `Profile: ${name}`);
+    prof.setAttribute('aria-label', `Profile: ${name}`);
+    const ps = session.persist();
+    saveBanner.hidden = !(ps === 'unsaved' || ps === 'conflict' || ps === 'session-only');
+    if (!saveBanner.hidden && saveBanner.dataset.state !== ps + session.error()) {
+      saveBanner.dataset.state = ps + session.error();
+      const b = (label: string, fn: () => void, cls = 'aw-btn aw-out aw-sm') => { const x = h('button', { class: cls, type: 'button' }, label); x.addEventListener('click', fn); return x; };
+      saveBanner.replaceChildren(icon('alert', 'aw-i aw-i14'), h('span', { class: 'aw-grow aw-wrap' }, session.error()),
+        ...(ps === 'conflict' ? [b('Use stored version', () => { session.useStored(); announce('Loaded the stored version.'); }), b('Keep this tab’s version', () => session.overwrite())]
+          : [b(ps === 'session-only' ? 'Try storage again' : 'Retry save', () => session.retry())]),
+        b('Export…', () => go('settings'), 'aw-btn aw-gh aw-sm'));
+    }
+    if ((!editor || editor.module === 'route') && !form) {
       foot.hidden = act.length === 0;
       if (act.length) {
         const stop = h('button', { class: 'aw-btn aw-out aw-sm', type: 'button' }, icon('stop', 'aw-i aw-i12'), 'Stop all');
@@ -359,19 +392,17 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
 
   // Data-only updates: coalesced to one frame; never rebuild inputs.
   let frame = 0;
-  const unsubscribe = rt.subscribe(() => {
+  const schedule = () => {
     if (!frame) frame = requestAnimationFrame(() => {
       frame = 0;
       refreshChrome();
       live?.();
     });
-  });
+  };
+  const unsubscribe = rt.subscribe(schedule);
+  const unsubSession = session.subscribe(schedule);
 
   // ---------- shared pieces
-  const heading = (text: string, cls = 'aw-h') => h('h2', { class: cls, tabindex: '-1', 'data-focus': true }, text);
-  const tile = (name: IconName) => h('div', { class: 'aw-tile' }, icon(name));
-  const countBadge = () => h('span', { class: 'aw-bd aw-s aw-cnt' }, '0');
-  const methodBadge = (m: string) => h('span', { class: `aw-bd aw-m aw-${m}` }, m === '*' ? 'ANY' : m);
   const backButton = (to: Screen, onClick: () => void) => {
     const b = h('button', { class: 'aw-btn aw-gh aw-sm aw-back', type: 'button', 'aria-label': `Back to ${NAME[to]}` }, icon('back', 'aw-i aw-i14'), 'Back');
     b.addEventListener('click', onClick);
@@ -411,22 +442,6 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     const active = !cfg()[m].active;
     setModule(m, { active });
     announce(`${MOD[m].tab} module ${active ? 'activated' : 'deactivated'}.`);
-  }
-
-  function checkbox(label: string, checked: boolean, onChange: (v: boolean) => void) {
-    const b = h('button', { class: 'aw-cb', type: 'button', role: 'checkbox', 'aria-label': label });
-    const set = (v: boolean) => {
-      b.classList.toggle('aw-on', v);
-      b.setAttribute('aria-checked', String(v));
-      b.replaceChildren(...(v ? [icon('check', 'aw-i aw-i12')] : []));
-    };
-    set(checked);
-    b.addEventListener('click', () => {
-      const v = b.getAttribute('aria-checked') !== 'true';
-      set(v);
-      onChange(v);
-    });
-    return b;
   }
 
   function ruleSummary(m: Module, r: RuleOf[Module]) {
@@ -531,8 +546,29 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     render();
   }
 
+  // ---------- R2 workspaces
+  const kit: Kit = {
+    rt, session, fetchers: opts.fetchers, root, foot, announce, ask, here, go, goBack,
+    openForm(f) { editor = null; form = f; render(); },
+    closeForm(focus) { const f = form; form = null; if (f) goBack(f.ret, focus === undefined ? f.ret.focus : focus); },
+    leaveForm,
+    runEndpoint(id) { guard(() => { form = null; editor = null; testUi.select(id); screen = 'test'; render(); }); },
+    editEndpoint(id, extra) { endpointsUi.openEditor(id, here(), extra as Parameters<typeof endpointsUi.openEditor>[2]); },
+    backButton: (to, onClick) => backButton(to, onClick),
+  };
+  const endpointsUi = createEndpointsUi(kit);
+  const testUi = createTestUi(kit);
+  const settingsUi = createSettingsUi(kit, {
+    version: opts.version,
+    onProfileChange: () => testUi.stop(),
+    clearPreferences: () => {
+      try { localStorage.removeItem(GEOMETRY_KEY); } catch { /* storage refused: nothing stored either */ }
+      delete geo.panel; delete geo.size; delete geo.launcher;
+      place();
+    },
+  });
+
   // ---------- screens
-  type Built = { nodes: Node[]; refresh?: () => void };
 
   function homeScreen(): Built {
     const refreshers: (() => void)[] = [];
@@ -541,6 +577,22 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
       openBtn.addEventListener('click', () => go(target));
       return h('section', { class: 'aw-card aw-cp aw-col aw-gap12' },
         h('div', { class: 'aw-row aw-gap10' }, tile(iconName), h('div', { class: 'aw-grow' }, h('div', { class: 'aw-row aw-gap8' }, h('span', { class: 'aw-h' }, title), h('span', { class: 'aw-bd' }, 'Not in this build')), h('div', { class: 'aw-xs aw-mu' }, sub)), openBtn));
+    };
+    const testerCard = () => {
+      const sub = h('div', { class: 'aw-xs aw-mu aw-wrap' });
+      const openBtn = h('button', { class: 'aw-btn aw-gh aw-sm', type: 'button', 'aria-label': 'Open API Tester' }, 'Open', icon('chevronRight', 'aw-i aw-i14'));
+      openBtn.addEventListener('click', () => go('test'));
+      const primary = h('button', { class: 'aw-btn aw-sm aw-out', type: 'button', 'data-key': 'card-test' });
+      primary.addEventListener('click', () => (session.agg().endpoints.length ? go('test') : kit.editEndpoint(null)));
+      refreshers.push(() => {
+        const n = session.agg().endpoints.length;
+        sub.textContent = n ? `${n} endpoint${n === 1 ? '' : 's'} · Once ready · plans arrive in a later build` : 'No endpoints yet';
+        primary.replaceChildren(icon(n ? 'play' : 'plus', 'aw-i aw-i14'), n ? 'Run once' : 'Create endpoint');
+        primary.setAttribute('aria-label', n ? 'Run an endpoint once' : 'Create endpoint');
+      });
+      return h('section', { class: 'aw-card aw-cp aw-col aw-gap12', 'aria-label': 'API Tester' },
+        h('div', { class: 'aw-row aw-gap10' }, tile('flask'), h('div', { class: 'aw-grow' }, h('div', { class: 'aw-row aw-gap8' }, h('span', { class: 'aw-h' }, 'API Tester')), sub), openBtn),
+        h('div', { class: 'aw-row' }, primary));
     };
     const moduleCard = (m: Module) => {
       const badgeSlot = h('span', {});
@@ -586,7 +638,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     return {
       nodes: [
         h('h2', { class: 'aw-sr', tabindex: '-1', 'data-focus': true }, 'Home'),
-        laterCard('API Tester', 'flask', 'Endpoints, Once and plans arrive in later builds', 'test'),
+        testerCard(),
         moduleCard('mock'), moduleCard('intercept'), moduleCard('route'),
         laterCard('Chaos Engineering', 'flame', 'Latency and fault rules arrive in a later build', 'chaos'),
         h('div', { class: 'aw-col aw-gap8 aw-mt2' }, h('div', { class: 'aw-cap aw-capl' }, 'Quick actions'),
@@ -894,7 +946,9 @@ export function mountPanel(rt: Runtime, opts: { version: string; onClose(): void
     },
     destroy() {
       cancelAnimationFrame(frame);
+      testUi.stop();
       unsubscribe();
+      unsubSession();
       ro.disconnect();
       life.abort();
       if (dialog.open) dialog.close();

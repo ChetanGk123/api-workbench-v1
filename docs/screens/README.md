@@ -1,6 +1,6 @@
 # Screen-by-screen implementation tasks
 
-Written 10 October 2026; updated 11 October. **Clean rebuild: R1 portions of S00.1–S00.3, S02.1–S02.2, S20.1 and S21.1–S21.2 are implemented with verification incomplete ([R1 evidence](../R1_REPORT.md)); all other surface tasks are NOT STARTED.** Earlier rebuild/v2 R1 work is in [history](../history/R1_REPORT.md). Model assignments are recommendations for the developer/agent building the screen; the shipped Workbench does not call an AI model.
+Written 10 October 2026; updated 11 October. **Clean rebuild: R1 portions of S00.1–S00.3, S02.1–S02.2, S20.1 and S21.1–S21.2, and R2 portions of S03.1–S03.3, S04.1–S04.3, S07.1–S07.3 and S18.1–S18.2 are implemented with verification incomplete ([R1 evidence](../R1_REPORT.md), [R2 evidence](../R2_REPORT.md)); S22 has its R2 definition schema only; all other surface tasks are NOT STARTED.** Earlier rebuild/v2 R1 work is in [history](../history/R1_REPORT.md). Model assignments are recommendations for the developer/agent building the screen; the shipped Workbench does not call an AI model.
 
 Read [the rebuild index](../README.md), [product scope](../PRODUCT.md), [UX rules](../UX.md) and the assigned screen before editing. The screen documents expand the contracts into concrete tasks; they do not replace NETWORK/DATA/TESTER/IMPORT_RECORDER or authorize silently changing their behavior. A task includes its connected domain work when necessary; rendering a functional-looking control is insufficient.
 

@@ -1,6 +1,6 @@
 {
   "name": "api-workbench",
-  "version": "2.0.0-r1",
+  "version": "2.0.0-r2",
   "private": true,
   "type": "module",
   "scripts": {

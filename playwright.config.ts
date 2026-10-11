@@ -13,8 +13,8 @@ export default defineConfig({
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
   use: { baseURL: `http://127.0.0.1:${PORT}` },
   projects: [
-    { name: 'core', testMatch: /core\.spec\.ts/ },
-    { name: 'chrome', testMatch: /(browser|shell)\.spec\.ts/, use: { channel: process.env.AW_BROWSER ?? 'chrome' } },
+    { name: 'core', testMatch: /core\.spec\.ts$/ },
+    { name: 'chrome', testMatch: /(browser|shell|data)\.spec\.ts$/, use: { channel: process.env.AW_BROWSER ?? 'chrome' } },
   ],
   webServer: {
     command: 'node tests/fixture/server.mjs',
