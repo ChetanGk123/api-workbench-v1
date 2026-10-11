@@ -186,6 +186,8 @@ function handler(name) {
         'x-signature': req.headers['x-signature'] ?? null,
         'x-xsrf-token': req.headers['x-xsrf-token'] ?? null,
         'x-added': req.headers['x-added'] ?? null,
+        'x-corpus': req.headers['x-corpus'] ?? null,
+        'x-odd': req.headers['x-odd'] ?? null,
         accept: req.headers.accept ?? null,
       },
       session: cookies(req).session ?? null,

@@ -5,8 +5,8 @@ import { capturesToHar, FORMAT_NAMES, parseSource, type Format } from '../data/i
 import { migrateV1 } from '../data/migrate';
 import { RECORDER, type Recorder } from '../data/recorder';
 import {
-  applyCandidates, candidatesFromCaptures, candidatesFromNative, dependencySuggestions, mergeNative, plansUsing, rebuildCandidate,
-  type Applied, type Candidate, type Suggestion,
+  applyCandidates, candidatesFromCaptures, candidatesFromDrafts, candidatesFromNative, dependencySuggestions, mergeNative, plansUsing, rebuildCandidate,
+  type Applied, type Candidate, type Draft, type Suggestion,
 } from '../data/review';
 import { copyAggregate, defaultProfile, validateAggregate, type Aggregate, type Diag } from '../data/schema';
 import { Conflict, readV1 } from '../data/store';
@@ -29,6 +29,8 @@ interface Review {
   candidates: Candidate[];
   suggestions: Suggestion[];
   calls?: { captures: Capture[]; fromRecorder: boolean; group: boolean; dest: 'current' | 'new'; newName: string };
+  /** Swagger/OpenAPI/Postman/cURL/fetch: drafted requests; `servers` when an OpenAPI document declares several. */
+  drafts?: { list: Draft[]; dest: 'current' | 'new'; newName: string; text: string; format: Format; servers?: string[]; server: number };
   native?: { read: ImportRead; mode: NativeMode };
 }
 
@@ -93,7 +95,8 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     if (!r.ok) { errors = r.errors; return setPhase('invalid'); }
     const p = r.value;
     if (p.format === 'har') buildCalls(p.captures, { source: from, label: p.label, notes: p.notes, skipped: p.skipped, fromRecorder: false });
-    else buildNative(p.read, from, p.label);
+    else if (p.format === 'native') buildNative(p.read, from, p.label);
+    else buildDrafts(p.drafts, { source: from, label: p.label, notes: p.notes, skipped: p.skipped, text, format: override, ...(p.servers && { servers: p.servers }), server: 0 });
   }
 
   function cancel() {
@@ -140,7 +143,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const { candidates, skipped } = candidatesFromCaptures(target, captures, { group, pageOrigin: kit.rt.origin });
     for (const c of candidates) {
       const old = prev?.candidates.find((p) => p.key === c.key && p.members.length === c.members.length && p.members[0]!.id === c.members[0]!.id);
-      if (old) { c.selected = old.selected; c.endpoint.name = old.endpoint.name; }
+      if (old) keepChoices(target, c, old);
       else if (x.fromRecorder && c.members.every((m) => rec.deselected.has(m.id))) c.selected = false;
     }
     review = {
@@ -151,6 +154,42 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     };
     setPhase('review');
     drawReview();
+  }
+
+  function buildDrafts(list: Draft[], x: { source: string; label: string; notes: string[]; skipped: string[]; text: string; format: Format; servers?: string[]; server: number }, prev?: Review) {
+    const dest = prev?.drafts?.dest ?? 'current';
+    const target = dest === 'new' ? defaultProfile('New profile') : destination();
+    const { candidates, skipped } = candidatesFromDrafts(target, list, kit.rt.origin);
+    for (const c of candidates) {
+      const old = prev?.candidates.find((p) => p.key === c.key && p.draft?.source === c.draft?.source);
+      if (old) keepChoices(target, c, old);
+    }
+    review = {
+      source: x.source, label: x.label, notes: x.notes, skipped: [...x.skipped, ...skipped],
+      profileId: destination().profile.id, revision: destination().revision, candidates, suggestions: [],
+      drafts: { list, dest, newName: prev?.drafts?.newName ?? x.label.split(' · ').pop()!.slice(0, 60), text: x.text, format: x.format, ...(x.servers && { servers: x.servers }), server: x.server },
+    };
+    setPhase('review');
+    drawReview();
+  }
+
+  /** OpenAPI with several servers: parse again against the chosen one. */
+  function chooseServer(r: Review, idx: number) {
+    const d = r.drafts!;
+    const p = parseSource(d.text, d.format, { server: idx });
+    if (!p.ok || p.value.format === 'native' || p.value.format === 'har') return;
+    buildDrafts(p.value.drafts, { source: r.source, label: r.label, notes: p.value.notes, skipped: p.value.skipped, text: d.text, format: d.format, ...(d.servers && { servers: d.servers }), server: idx }, r);
+  }
+
+  /** A rebuilt review (destination switch, stale rebuild) keeps the user's choices for the same source item. */
+  function keepChoices(target: Aggregate, c: Candidate, old: Candidate) {
+    c.selected = old.selected;
+    const changed = old.sampleIdx !== c.sampleIdx || old.dropQuery.length > 0 || (old.bodyIdx ?? 0) !== (c.bodyIdx ?? 0);
+    c.sampleIdx = old.sampleIdx;
+    c.dropQuery = [...old.dropQuery];
+    if (old.bodyIdx !== undefined) c.bodyIdx = old.bodyIdx;
+    if (changed) rebuildCandidate(target, c, kit.rt.origin);
+    c.endpoint.name = old.endpoint.name;
   }
 
   function buildNative(read: ImportRead, source: string, label: string, mode?: NativeMode) {
@@ -170,6 +209,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
   function rebuild() {
     if (!review) return;
     if (review.calls) buildCalls(review.calls.captures, { source: review.source, label: review.label, notes: review.notes, skipped: review.skipped.filter((t) => !t.includes('cannot be saved') && !t.includes('only http')), fromRecorder: review.calls.fromRecorder }, review);
+    else if (review.drafts) { const d = review.drafts; buildDrafts(d.list, { source: review.source, label: review.label, notes: review.notes, skipped: review.skipped.filter((t) => !t.includes('cannot be saved as an endpoint')), text: d.text, format: d.format, ...(d.servers && { servers: d.servers }), server: d.server }, review); }
     else if (review.native) buildNative(review.native.read, review.source, review.label, review.native.mode);
     kit.announce('Review rebuilt against the current profile.');
   }
@@ -184,14 +224,15 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const kids: (Node | string)[] = [
       h('strong', { class: 'aw-wrap' }, `${r.label} · ${r.source}`),
     ];
-    if (r.calls) {
-      const total = r.calls.captures.length + r.skipped.length;
-      kids.push(h('div', { class: 'aw-xs aw-wrap', id: 'aw-imp-counts' }, `${total} source item${total === 1 ? '' : 's'} · ${r.candidates.length} candidate${r.candidates.length === 1 ? '' : 's'} · ${r.skipped.length} skipped`));
+    if (r.calls || r.drafts) {
+      const total = (r.calls ? r.calls.captures.length : r.drafts!.list.length) + r.skipped.length - (r.drafts ? r.skipped.filter((t) => t.includes('cannot be saved as an endpoint')).length : 0);
+      const needs = r.candidates.filter((c) => c.requires.length).length;
+      kids.push(h('div', { class: 'aw-xs aw-wrap', id: 'aw-imp-counts' }, `${total} source item${total === 1 ? '' : 's'} · ${r.candidates.length} candidate${r.candidates.length === 1 ? '' : 's'} · ${r.skipped.length} skipped${r.drafts ? ` · ${needs} need values` : ''}`));
     }
     kids.push(...r.notes.map((t) => h('div', { class: 'aw-xs aw-mu aw-wrap' }, t)));
     if (r.skipped.length) kids.push(h('details', {}, h('summary', { class: 'aw-xs' }, `Skipped (${r.skipped.length})`), ...r.skipped.map((t) => h('div', { class: 'aw-xs aw-mu aw-wrap' }, t))));
     kids.push(ui.stale);
-    if (r.calls) kids.push(...callsControls(r, cur));
+    if (r.calls || r.drafts) kids.push(...callsControls(r, cur));
     else if (r.native) kids.push(...nativeControls(r, cur));
     if (r.suggestions.length) kids.push(h('details', {}, h('summary', { class: 'aw-xs' }, `Possible dependencies (${r.suggestions.length}, not applied)`), ...r.suggestions.map((x) => h('div', { class: 'aw-xs aw-mu aw-wrap' }, x.text))));
     if (r.candidates.length) kids.push(h('ul', { class: 'aw-eplist aw-col aw-gap8', 'aria-label': 'Import candidates' }, ...r.candidates.map((c, i) => candidateRow(r, c, i))));
@@ -215,18 +256,21 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
   }
 
   function callsControls(r: Review, cur: Aggregate): Node[] {
-    const c = r.calls!;
+    const c = (r.calls ?? r.drafts)!;
     const destSel = select(c.dest, [['current', `Current profile: ${cur.profile.name}`], ['new', 'New profile…']] as const, (v) => { c.dest = v; rebuild(); }, { id: 'aw-imp-dest', label: 'Destination' });
     const nameIn = input(c.newName, (v) => { c.newName = v; }, { id: 'aw-imp-newname' });
     const all = btn('Select all', () => { r.candidates.forEach((x) => setSelected(r, x, true)); drawReview(); }, 'aw-btn aw-gh aw-sm', { 'aria-label': `Select all ${r.candidates.length} candidates` });
     const none = btn('Clear selection', () => { r.candidates.forEach((x) => setSelected(r, x, false)); drawReview(); }, 'aw-btn aw-gh aw-sm', { 'aria-label': `Clear selection of all ${r.candidates.length} candidates` });
+    const d = r.drafts;
     return [
       h('div', { class: 'aw-row aw-gap6 aw-end' }, h('div', { class: 'aw-grow' }, field('Destination', destSel)), ...(c.dest === 'new' ? [h('div', { class: 'aw-grow' }, field('New profile name', nameIn))] : [])),
       h('div', { class: 'aw-xs aw-mu aw-wrap', id: 'aw-imp-dest-note' }, c.dest === 'current' ? `Adds to ${cur.profile.name} (revision ${r.revision}). Duplicates of saved endpoints default to Skip.` : 'Creates the profile and switches to it after saving. The current profile is not changed.'),
+      ...(d?.servers ? [field('Server', select(String(d.server), d.servers.map((u, i) => [String(i), u || '(relative)'] as [string, string]), (v) => chooseServer(r, Number(v)), { id: 'aw-imp-server' }))] : []),
       h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },
-        h('span', { class: 'aw-chk' }, checkbox('Group identical calls', c.group, (v) => { c.group = v; rebuild(); }), 'Group identical calls'),
+        r.calls ? h('span', { class: 'aw-chk' }, checkbox('Group identical calls', r.calls.group, (v) => { r.calls!.group = v; rebuild(); }), 'Group identical calls') : '',
         h('div', { class: 'aw-grow' }), all, none),
-      h('p', { class: 'aw-hint aw-wrap' }, 'Grouping joins calls with the same method, origin, path, query and body (cache-buster parameters such as _ or ts ignored). Calls that differ stay separate.'),
+      r.calls ? h('p', { class: 'aw-hint aw-wrap' }, 'Grouping joins calls with the same method, origin, path, query and body (cache-buster parameters such as _ or ts ignored). Calls that differ stay separate.')
+        : h('p', { class: 'aw-hint aw-wrap' }, 'Values the source does not supply are {{$missing("…")}} markers: sending stops at them until you enter a value. Secrets are never imported.'),
     ];
   }
 
@@ -262,7 +306,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
 
   function candidateRow(r: Review, c: Candidate, i: number): HTMLElement {
     const e = c.endpoint;
-    const target = r.calls?.dest === 'new' ? defaultProfile() : destination();
+    const target = (r.calls ?? r.drafts)?.dest === 'new' ? defaultProfile() : destination();
     const urlText = `${e.request.hostKey === null ? e.request.url : `${(target.profile.environments[target.profile.activeEnvironment] ?? {})[e.request.hostKey] || kit.rt.origin}${e.request.url}`}${e.request.query.length ? `?${e.request.query.map(([k, v]) => `${k}=${v}`).join('&')}` : ''}`;
     const sel = checkbox(`Select ${e.name}`, c.selected, (v) => { setSelected(r, c, v); refreshCommit(); });
     const nameIn = input(e.name, (v) => { e.name = v; }, { label: `Name for candidate ${i + 1}`, id: `aw-cand-name-${i}` });
@@ -280,6 +324,14 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
         drawReview();
       }, { id: `aw-cand-sample-${i}` })));
     }
+    const bodies = c.draft?.bodies ?? [];
+    if (bodies.length > 1) {
+      kids.push(field('Body example', select(String(c.bodyIdx ?? 0), bodies.map((b, j) => [String(j), b.label] as [string, string]), (v) => {
+        c.bodyIdx = Number(v);
+        rebuildCandidate(target, c, kit.rt.origin);
+        drawReview();
+      }, { id: `aw-cand-body-${i}` })));
+    }
     for (const t of c.transient) {
       kids.push(h('div', { class: 'aw-chk' }, checkbox(`Remove transient query ${t} from ${e.name}`, c.dropQuery.includes(t), (v) => {
         c.dropQuery = v ? [...c.dropQuery, t] : c.dropQuery.filter((x) => x !== t);
@@ -296,6 +348,15 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     }
     if (c.requires.length) kids.push(h('div', { class: 'aw-col aw-gap2' }, h('span', { class: 'aw-xs aw-am' }, 'Needs before sending:'), ...c.requires.map((t) => h('div', { class: 'aw-xs aw-wrap' }, `• ${t}`))));
     if (c.notes.length) kids.push(h('div', { class: 'aw-col aw-gap2' }, ...c.notes.map((t) => h('div', { class: 'aw-xs aw-mu aw-wrap' }, t))));
+    if (c.draft) {
+      const rq = e.request;
+      const b = rq.body;
+      const bodyText = b.kind === 'json' || b.kind === 'text' ? b.text : b.kind === 'urlencoded' ? b.pairs.map(([k, v]) => `${k}=${v}`).join('&') : b.kind === 'multipart' ? b.parts.map((p) => (p.kind === 'file' ? `${p.name}: <file ${p.fileName || 'chosen at run time'}>` : `${p.name}: ${p.value}`)).join('\n') : '';
+      kids.push(h('details', {}, h('summary', { class: 'aw-xs' }, `Request preview · ${c.source}`),
+        h('div', { class: 'aw-xs aw-mono aw-wrap' }, `credentials: ${rq.credentials}`),
+        ...rq.headers.map((x) => h('div', { class: 'aw-xs aw-mono aw-wrap' }, `${x.name}: ${x.value}`)),
+        bodyText ? h('pre', { class: 'aw-pre aw-xs aw-mono' }, bodyText.length > 600 ? `${bodyText.slice(0, 600)}…` : bodyText) : ''));
+    }
     if (c.members.length) {
       kids.push(h('details', {}, h('summary', { class: 'aw-xs' }, `Source call${c.members.length > 1 ? 's' : ''} (${c.members.length})`),
         ...c.members.map((m) => h('div', { class: 'aw-xs aw-mono aw-wrap' }, `#${m.id} ${m.transport} ${m.method} ${m.url}${m.query.length ? `?${m.query.map(([k, v]) => `${k}=${v}`).join('&')}` : ''} → ${m.status ?? m.outcome}${m.redacted.length ? ` · redacted: ${m.redacted.join(', ')}` : ''}${m.body.kind === 'omitted' ? ` · ${m.body.reason}` : ''}`))));
@@ -334,9 +395,8 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const r = review;
     if (!r || phase === 'saving') return;
     if (isStale()) return drawStale();
-    if (r.calls?.dest === 'new' || r.native?.mode !== 'merge') {
-      if (r.calls && !r.calls.newName.trim() && r.calls.dest === 'new') return kit.announce('Enter a name for the new profile.');
-    }
+    const list = r.calls ?? r.drafts;
+    if (list && list.dest === 'new' && !list.newName.trim()) return kit.announce('Enter a name for the new profile.');
     const names = r.candidates.filter((c) => c.selected).map((c) => c.endpoint.alias);
     if (new Set(names).size !== names.length) { setPhase('failed', 'Two selected candidates use the same alias. Change one, then import.'); return drawReview(); }
     setPhase('saving');
@@ -344,10 +404,10 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     let summary = '';
     let recorderIds: number[] = [];
     try {
-      if (r.calls) {
+      if (list) {
         const sel = r.candidates.filter((c) => c.selected);
-        if (r.calls.dest === 'new') {
-          const name = r.calls.newName.trim();
+        if (list.dest === 'new') {
+          const name = list.newName.trim();
           if (s.all().some((a) => a.profile.name.toLowerCase() === name.toLowerCase())) throw new Error(`A profile named "${name}" already exists`);
           const res = applyCandidates(defaultProfile(name), sel);
           const v = validateAggregate(res.agg);
@@ -361,7 +421,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
           if (diags) throw new Invalid(diags, res!.agg);
           summary = counts(res!, s.agg().profile.name);
         }
-        if (r.calls.fromRecorder) recorderIds = sel.flatMap((c) => c.members.map((m) => m.id));
+        if (r.calls?.fromRecorder) recorderIds = sel.flatMap((c) => c.members.map((m) => m.id));
       } else if (r.native) {
         summary = await commitNative(r);
       }
@@ -501,13 +561,13 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const stale = h('div', { class: 'aw-alert aw-row aw-gap6', id: 'aw-imp-stale', hidden: true });
     ui = { state, text: ta, review: reviewEl, rec: recEl, stale };
 
-    const fileIn = h('input', { type: 'file', accept: '.json,.har,application/json', class: 'aw-xs', id: 'aw-imp-file', 'aria-label': 'Choose a file to import' });
+    const fileIn = h('input', { type: 'file', accept: '.json,.har,.txt,.sh,.cmd,.bat,.js,application/json,text/plain', class: 'aw-xs', id: 'aw-imp-file', 'aria-label': 'Choose a file to import' });
     fileIn.addEventListener('change', () => {
       const f = fileIn.files?.[0];
       fileIn.value = '';
       if (f) void readFile(f);
     });
-    const fmt = select(override, [['auto', 'Detect from content'], ['native', FORMAT_NAMES.native], ['har', FORMAT_NAMES.har]] as const, (v) => { override = v; }, { id: 'aw-imp-format', label: 'Format' });
+    const fmt = select(override, [['auto', 'Detect from content'], ...(Object.entries(FORMAT_NAMES) as [Exclude<Format, 'auto'>, string][])], (v) => { override = v; }, { id: 'aw-imp-format', label: 'Format' });
 
     drawState();
     drawReview();
@@ -520,7 +580,8 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
           recEl),
         section('Source',
           h('div', { class: 'aw-row aw-gap6 aw-end' }, h('div', { class: 'aw-grow' }, field('Format', fmt)), h('div', {}, fileIn)),
-          field('Paste', ta, undefined, undefined, `Up to ${IMPORT_MAX_BYTES / 1024 / 1024} MiB. Supported: ${FORMAT_NAMES.native}; ${FORMAT_NAMES.har} (Chrome/Edge DevTools “Save all as HAR”). Swagger/OpenAPI, Postman, cURL and copied fetch arrive in a later build and are named, not imported. Importing never runs code or sends a request.`),
+          field('Paste', ta, undefined, undefined, `Up to ${IMPORT_MAX_BYTES / 1024 / 1024} MiB. The format is detected from the content. Importing never runs code, reads a file path, fetches a reference or sends a request.`),
+          formatHelp(),
           h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },
             btn('Apply', () => void apply(edited || !sourceName || sourceName === 'Recorder' ? 'Pasted text' : sourceName), 'aw-btn aw-pri aw-sm', { id: 'aw-imp-apply' }),
             btn('Cancel', cancel, 'aw-btn aw-out aw-sm', { id: 'aw-imp-cancel' }),
@@ -535,6 +596,18 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
   }
 
   return { screen };
+}
+
+/** Runtime help: the adapters this build has and the grammar each accepts. */
+function formatHelp(): HTMLElement {
+  const row = (title: string, text: string, example = '') => h('div', { class: 'aw-col aw-gap2' }, h('strong', { class: 'aw-xs' }, title), h('span', { class: 'aw-xs aw-wrap' }, text), example ? h('pre', { class: 'aw-xs aw-mono aw-wrap' }, example) : '');
+  return h('details', { id: 'aw-imp-help' }, h('summary', { class: 'aw-xs' }, 'Supported formats and examples'),
+    row('API Workbench', 'Profile export, backup or schema 1 data. New profile, merge or replace.'),
+    row('HAR 1.2', 'DevTools Network → Save all as HAR. Same calls with different bodies stay separate.'),
+    row('Swagger 2.0 / OpenAPI 3.0 (JSON)', 'Operations, parameters, local $ref, examples and auth hints. Remote refs are not fetched; schema-only values are not invented. YAML and OpenAPI 3.1 are not supported.'),
+    row('Postman collection v2.1', 'Folders, enabled headers/query, collection and folder variables, auth inheritance (bearer, basic, API key; noauth stops it), raw/urlencoded/form-data/GraphQL bodies, saved responses. Scripts never run.'),
+    row('cURL (bash or Windows cmd)', 'DevTools Copy as cURL. Accepts -X -H -d --data-raw --data-binary --data-urlencode -F -u -b -G -I --compressed; several commands are separate requests. Shell variables, substitutions, pipes and @file reads are refused.', "curl 'https://api.example.com/path' \\\n  -H 'content-type: application/json' \\\n  --data-raw '{\"n\":1}'"),
+    row('Copied fetch', 'DevTools Copy as fetch: fetch("url", {…}) with string, number, true/false/null, object and array literals only. Variables, calls, template literals, new and JSON.stringify are refused.', 'fetch("https://api.example.com/path", {\n  "headers": { "content-type": "application/json" },\n  "body": "{\\"n\\":1}",\n  "method": "POST",\n  "credentials": "include"\n});'));
 }
 
 /** Validation failure of the would-be result, described by candidate name where possible. */

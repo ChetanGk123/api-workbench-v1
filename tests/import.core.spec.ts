@@ -28,14 +28,14 @@ function calls(text: string): Capture[] {
 const build = (a: Aggregate, text: string, group = true) => candidatesFromCaptures(a, calls(text), { group, pageOrigin: PAGE });
 
 test.describe('detection (S05.1)', () => {
-  test('content decides the format; later formats are named, not claimed', () => {
+  test('content decides the format; empty documents are refused with the reason', () => {
     const msg = (t: string) => { const r = parseSource(t, 'auto'); return r.ok ? r.value.format : r.errors[0]!.message; };
     expect(msg(har([{ url: `${PAGE}/a` }]))).toBe('har');
-    expect(msg(JSON.stringify({ swagger: '2.0', paths: {} }))).toContain('Swagger 2.0 (import arrives in a later build)');
-    expect(msg(JSON.stringify({ openapi: '3.0.3', paths: {} }))).toContain('OpenAPI 3.0.3');
-    expect(msg(JSON.stringify({ info: { _postman_id: 'x', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' }, item: [] }))).toContain('Postman collection');
-    expect(msg("curl 'https://x.test/a' -H 'x: 1'")).toContain('cURL command');
-    expect(msg('fetch("https://x.test/a", {})')).toContain('copied fetch');
+    expect(msg(JSON.stringify({ swagger: '2.0', paths: {} }))).toBe('The document has no operations');
+    expect(msg(JSON.stringify({ openapi: '3.0.3', paths: {} }))).toBe('The document has no operations');
+    expect(msg(JSON.stringify({ info: { _postman_id: 'x', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' }, item: [] }))).toBe('The collection has no requests');
+    expect(msg("curl 'https://x.test/a' -H 'x: 1'")).toBe('curl');
+    expect(msg('fetch("https://x.test/a", {})')).toBe('fetch');
     expect(msg('{"request": {"url": "x"}}')).toContain('unrecognized content'); // a generic "request" key is not a format
     expect(msg('')).toContain('Paste or choose');
   });

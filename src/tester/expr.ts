@@ -74,7 +74,7 @@ export type Expr =
   | { k: 'source'; ref: SourceRef }
   | { k: 'context'; name: string }
   | { k: 'eval'; node: Node }
-  | { k: 'marker'; name: 'redacted' | 'missing' };
+  | { k: 'marker'; name: 'redacted' | 'missing'; label?: string };
 
 const BAD = new Set(['__proto__', 'prototype', 'constructor']);
 type Tok = { t: 'id' | 'str' | 'num' | 'op' | 'end'; v: string; at: number };
@@ -225,7 +225,14 @@ export function parseExpr(src: string): { ok: true; expr: Expr } | { ok: false; 
       switch (name) {
         case 'uuid': noArgs(); expr = { k: 'uuid' }; break;
         case 'timestamp': noArgs(); expr = { k: 'timestamp' }; break;
-        case 'redacted': case 'missing': expr = { k: 'marker', name }; break;
+        case 'redacted': noArgs(); expr = { k: 'marker', name }; break;
+        case 'missing': {
+          // Optional label names what an import could not supply: {{$missing("path id")}}.
+          const a = p.is('(') ? p.args() : [];
+          if (a.length > 1) throw new SyntaxError('$missing takes at most a label');
+          expr = a.length ? { k: 'marker', name, label: text(a[0], 'Label', 64) } : { k: 'marker', name };
+          break;
+        }
         case 'counter': {
           const a = p.args();
           expr = { k: 'counter', name: text(a[0], 'Counter name'), start: a.length > 1 ? safeInt(a[1], 'Initial value') : 1, step: a.length > 2 ? safeInt(a[2], 'Step') : 1 };
@@ -434,7 +441,7 @@ export function evaluate(env: Env, inner: string): { value: unknown; secret: boo
     return env.reserved.get(key);
   };
   switch (e.k) {
-    case 'marker': throw new Blocked(e.name === 'redacted' ? 'value was redacted on export or capture; enter it again' : 'not captured when recorded or imported; enter it before sending');
+    case 'marker': throw new Blocked(e.name === 'redacted' ? 'value was redacted on export or capture; enter it again' : e.label ? `${e.label}: not supplied by the import; enter it before sending` : 'not captured when recorded or imported; enter it before sending');
     case 'ref': return { value: refValue(env, e.root, e.path), secret: false };
     case 'uuid': return { value: reserve(env.uuid), secret: false };
     case 'timestamp': return { value: reserve(() => new Num(String(env.now()))), secret: false };

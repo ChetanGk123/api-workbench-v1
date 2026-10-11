@@ -1,10 +1,11 @@
-// Shared import review: observed calls (recorder or HAR) and native endpoints become candidates;
+// Shared import review: observed calls (recorder or HAR), drafted requests (Swagger/OpenAPI/Postman/
+// cURL/fetch) and native endpoints become candidates;
 // candidates are grouped, compared with the destination profile and applied to a copy of it.
 // Pure: no DOM, no storage, never dispatches. The session validates and commits the result.
 import { REDACTED, type Capture } from '../net/capture';
 import {
   BOUNDS, METHODS, newId, renameAliasRefs, sensitiveHeader, utf8Bytes,
-  type Aggregate, type Body, type Check, type Endpoint, type Header, type Method, type Pair, type Sample,
+  type Aggregate, type Body, type Check, type Credentials, type Endpoint, type Header, type Method, type Pair, type Sample,
 } from './schema';
 
 export type Action = 'keep' | 'replace' | 'skip';
@@ -30,6 +31,32 @@ export interface Candidate {
   action: Action;
   /** "variant 2 of 3" when the same method+path has different queries or bodies. */
   variant: string;
+  /** Document/snippet adapters: the proposed request and which body example is chosen. */
+  draft?: Draft;
+  bodyIdx?: number;
+}
+
+/**
+ * A request proposed by a document or snippet adapter. Values the source could not supply are
+ * already {{$missing("…")}} markers (which block dispatch) and are listed in `requires`.
+ */
+export interface Draft {
+  name: string;
+  /** Preferred alias base (operationId); otherwise derived from the name. */
+  alias?: string;
+  method: string;
+  /** Absolute http(s) origin+path, or a path for a relative server (then the first host key is used). */
+  url: string;
+  query: Pair[];
+  headers: Pair[];
+  credentials: Credentials;
+  /** Body choices (media types / examples); the first is the default. Empty = no body. */
+  bodies: { label: string; contentType: string; body: Body }[];
+  sample?: Sample;
+  /** Where in the source: "paths./pets/{id}.get", "Folder / Request", "command 2 (line 4)". */
+  source: string;
+  notes: string[];
+  requires: string[];
 }
 
 export interface Suggestion { from: string; to: string; text: string }
@@ -219,10 +246,10 @@ function markConflict(agg: Aggregate, cand: Candidate, existing: Map<string, End
   if (hit) cand.action = 'skip';
 }
 
-/** Rebuild a candidate's endpoint after a sample or transient-query choice, keeping the user's name/alias. */
+/** Rebuild a candidate's endpoint after a sample, transient-query or body-example choice, keeping the user's name/alias. */
 export function rebuildCandidate(agg: Aggregate, cand: Candidate, pageOrigin: string): void {
   const { name, alias } = cand.endpoint;
-  const next = capturedEndpoint(agg, cand.members, cand.sampleIdx, cand.dropQuery, pageOrigin, alias);
+  const next = cand.draft ? draftEndpoint(agg, cand.draft, cand.bodyIdx ?? 0, pageOrigin, alias) : capturedEndpoint(agg, cand.members, cand.sampleIdx, cand.dropQuery, pageOrigin, alias);
   Object.assign(cand, next);
   cand.endpoint.name = name;
   const existing = new Map(agg.endpoints.map((e) => [requestIdentity(agg, e, pageOrigin), e]));
@@ -260,6 +287,89 @@ function leaves(x: unknown, path: string, fn: (path: string, v: string) => void,
   if (typeof x === 'string' || typeof x === 'number') fn(path, String(x));
   else if (Array.isArray(x)) x.slice(0, 50).forEach((e, i) => leaves(e, `${path}[${i}]`, fn, depth + 1));
   else if (x && typeof x === 'object') for (const [k, v] of Object.entries(x).slice(0, 100)) leaves(v, path ? `${path}.${k}` : k, fn, depth + 1);
+}
+
+// ---------- drafts (Swagger/OpenAPI/Postman/cURL/fetch) → candidates
+
+const aliasBase = (s: string) => {
+  const a = s.replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 56);
+  return /^[A-Za-z_]/.test(a) ? a : `_${a || 'request'}`;
+};
+
+function draftEndpoint(agg: Aggregate, d: Draft, bodyIdx: number, pageOrigin: string, alias: string): Pick<Candidate, 'endpoint' | 'notes' | 'requires'> {
+  const notes = [...d.notes];
+  const requires = [...d.requires];
+  let hostKey: string | null = null;
+  let url = d.url;
+  if (url.startsWith('/')) {
+    hostKey = Object.keys(agg.profile.environments[agg.profile.activeEnvironment] ?? {})[0] ?? null;
+    if (hostKey === null) url = pageOrigin + url;
+    else notes.push(`The source has a relative server URL; it uses host ${hostKey}`);
+  } else {
+    try {
+      const u = new URL(url.replace(/\{\{[^}]*\}\}/g, 'x'));
+      const k = hostFor(agg, u.origin, pageOrigin);
+      if (k !== null && url.startsWith(u.origin)) { hostKey = k; url = url.slice(u.origin.length) || '/'; }
+    } catch { /* validated at commit */ }
+  }
+  const choice = d.bodies[bodyIdx] ?? d.bodies[0];
+  const headers: Header[] = [];
+  const seen = new Set<string>();
+  for (const [name, value] of d.headers) {
+    const k = name.toLowerCase();
+    if (k === 'content-type' && choice) continue; // the chosen body decides
+    if (seen.has(k)) { notes.push(`Header ${name} appeared twice; the first value is kept`); continue; }
+    seen.add(k);
+    headers.push({ name, value });
+    if (ROTATING.test(name) && !value.includes('{{')) requires.push(`Header ${name} looks per-request (nonce, idempotency key, timestamp or OTP); the copied value is historical and must be prepared fresh`);
+  }
+  if (choice && choice.contentType && choice.body.kind !== 'multipart') headers.push({ name: 'Content-Type', value: choice.contentType });
+  if (d.headers.some(([k]) => k.toLowerCase() === 'content-type') && choice?.body.kind === 'multipart') notes.push('Content-Type dropped for multipart: the browser sets the boundary');
+  let body: Body = choice?.body ?? { kind: 'none' };
+  const method = d.method as Method;
+  if ((method === 'GET' || method === 'HEAD') && body.kind !== 'none') { notes.push(`${method} body was dropped: browsers do not send it`); body = { kind: 'none' }; }
+  const now = Date.now();
+  const e: Endpoint = {
+    id: newId('ep'),
+    name: d.name.slice(0, BOUNDS.name) || url.slice(0, BOUNDS.name),
+    alias,
+    request: { method, hostKey, url, query: d.query, headers, credentials: d.credentials, body },
+    checks: [statusCheck(d.sample?.status)],
+    provenance: d.source.slice(0, 200),
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (d.sample) e.sample = d.sample;
+  return { endpoint: e, notes, requires };
+}
+
+/** Turn drafted requests into candidates against the destination profile. */
+export function candidatesFromDrafts(agg: Aggregate, drafts: Draft[], pageOrigin: string): { candidates: Candidate[]; skipped: string[] } {
+  const skipped: string[] = [];
+  const used = new Set(agg.endpoints.map((e) => e.alias));
+  const existing = new Map(agg.endpoints.map((e) => [requestIdentity(agg, e, pageOrigin), e]));
+  const ok = drafts.filter((d) => {
+    if ((METHODS as readonly string[]).includes(d.method)) return true;
+    skipped.push(`${d.source}: method ${d.method} cannot be saved as an endpoint`);
+    return false;
+  });
+  const byPath = new Map<string, number>();
+  for (const d of ok) byPath.set(`${d.method} ${d.url}`, (byPath.get(`${d.method} ${d.url}`) ?? 0) + 1);
+  const seenPath = new Map<string, number>();
+  const out = ok.map((d, i) => {
+    const k = `${d.method} ${d.url}`;
+    const n = (seenPath.get(k) ?? 0) + 1;
+    seenPath.set(k, n);
+    const total = byPath.get(k)!;
+    const cand: Candidate = {
+      key: `d${i}`, selected: true, members: [], sampleIdx: 0, source: d.source, transient: [], dropQuery: [], conflict: null, action: 'keep',
+      variant: total > 1 ? `variant ${n} of ${total} (same method and path)` : '', draft: d, bodyIdx: 0,
+      ...draftEndpoint(agg, d, 0, pageOrigin, uniqueAlias(aliasBase(d.alias || d.name || slug(d.method, d.url)), used)),
+    };
+    markConflict(agg, cand, existing, pageOrigin);
+    return cand;
+  });
+  return { candidates: out, skipped };
 }
 
 // ---------- applying candidates

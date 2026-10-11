@@ -210,7 +210,7 @@ test.describe('import review and commit (G19 HAR/native, G20)', () => {
     const before = await counters(page);
     await page.locator('#aw-imp-text').fill('fetch("/api/echo", { method: "POST" })');
     await button(page, 'Apply').click();
-    await expect(page.locator('#aw-imp-errors')).toContainText('Detected copied fetch (import arrives in a later build)');
+    await expect(page.locator('#aw-imp-errors')).toContainText('Call 1: URL /api/echo is not absolute; not imported');
     expect(await counters(page)).toEqual(before);
 
     await page.locator('#aw-imp-file').setInputFiles({ name: 'huge.har', mimeType: 'application/json', buffer: Buffer.alloc(10 * 1024 * 1024 + 1, 32) });

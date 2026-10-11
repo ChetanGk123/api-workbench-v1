@@ -1,6 +1,6 @@
 # Import and recorder contract
 
-Status: rebuild behavior. R3 implements the recorder, the shared review/commit flow and the native and HAR adapters ([R3 evidence](R3_REPORT.md)); the other five external formats are detected and named but arrive in R7. All seven advertised external format/version paths and the recorder source are required. Source limits and recovery budgets are owned by [DATA](DATA.md).
+Status: rebuild behavior. R3 implements the recorder, the shared review/commit flow and the native and HAR adapters ([R3 evidence](R3_REPORT.md)); R7 implements Swagger 2.0, OpenAPI 3.0, Postman v2.1, DevTools cURL (bash and Windows cmd) and copied fetch on the same review/commit flow, with a real Chrome 154 DevTools dialect corpus; Edge corpus NOT RUN ([R7 evidence](R7_REPORT.md)). All seven advertised external format/version paths and the recorder source are required. Source limits and recovery budgets are owned by [DATA](DATA.md).
 
 ## One conversion/review flow
 

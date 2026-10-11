@@ -81,7 +81,7 @@ These are proposed product limits inherited from the plan or made explicit here.
 | Recorder captures | 100 / 1000, also bounded by recovery bytes; stop capture at the envelope cap and retain the draft |
 | Recorder recovery envelope | 1 MiB including metadata/selection; never expand unbounded |
 | Import input | 10 MiB UTF-8/file bytes; reject without dropping previous draft |
-| Import item/depth/ref limits | Swagger/OpenAPI 500 operations; Postman 500 requests/depth 16; HAR 1000 entries; local ref chain depth 8; JSON nesting proposed 64 |
+| Import item/depth/ref limits | Swagger/OpenAPI 500 operations; Postman 500 requests/depth 16; HAR 1000 entries; cURL/fetch 200 commands per paste; local ref chain depth 8; JSON nesting proposed 64; 10 body examples per operation (R7 implements these; JSON nesting is bounded only by the literal fetch grammar's depth 32) |
 | Pauses | 20 concurrent; 30-second auto-continue deadline |
 | Repeated runs | 1 default repetition / 1000 maximum; concurrency 1 / 20; explicit combined preflight request cap proposed 50,000 |
 | Timing samples | Up to 1000 per endpoint; exact P95 only for the retained stated sample set, aggregate counts/means over all measured values |

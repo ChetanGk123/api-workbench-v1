@@ -1,46 +1,75 @@
-// Format detection by content and the HAR 1.2 adapter. Pure: parsing never dispatches, reads files
-// or executes anything. HAR entries become the same redacted observed-call form the recorder uses.
+// Format detection by content, dispatch to every adapter, and the HAR 1.2 adapter. Pure: parsing
+// never dispatches, reads files or executes anything. HAR entries become the same redacted
+// observed-call form the recorder uses; Swagger/OpenAPI/Postman/cURL/fetch become drafted requests.
 import { CAP, cleanHeaders, cleanPairs, redactText, requestBody, sensitiveName, textualType, type Capture, type ResBody } from '../net/capture';
 import { readImport, IMPORT_MAX_BYTES, type ImportRead } from './backup';
 import { isSchema1 } from './migrate';
+import type { Draft } from './review';
 import { BOUNDS, utf8Bytes, type Diag, type Part } from './schema';
+import { parseCurl, parseFetch } from './snippets';
+import { parseOpenApi, parsePostman, parseSwagger } from './specs';
 
-export type Format = 'auto' | 'native' | 'har';
-export const FORMAT_NAMES: Record<Exclude<Format, 'auto'>, string> = { native: 'API Workbench export, backup or schema 1 JSON', har: 'HAR 1.2' };
+export type Format = 'auto' | 'native' | 'har' | 'swagger' | 'openapi' | 'postman' | 'curl-bash' | 'curl-cmd' | 'fetch';
+export const FORMAT_NAMES: Record<Exclude<Format, 'auto'>, string> = {
+  native: 'API Workbench export, backup or schema 1 JSON', har: 'HAR 1.2', swagger: 'Swagger 2.0 JSON', openapi: 'OpenAPI 3.0 JSON',
+  postman: 'Postman collection v2.1', 'curl-bash': 'cURL (bash)', 'curl-cmd': 'cURL (Windows cmd)', fetch: 'Copied fetch',
+};
 export const HAR_MAX_ENTRIES = 1000;
 
 export type Parsed =
   | { format: 'native'; label: string; read: ImportRead }
-  | { format: 'har'; label: string; captures: Capture[]; skipped: string[]; notes: string[] };
+  | { format: 'har'; label: string; captures: Capture[]; skipped: string[]; notes: string[] }
+  | { format: 'swagger' | 'openapi' | 'postman' | 'curl' | 'fetch'; label: string; drafts: Draft[]; skipped: string[]; notes: string[]; servers?: string[] };
 
 type Obj = Record<string, unknown>;
 const isObj = (x: unknown): x is Obj => !!x && typeof x === 'object' && !Array.isArray(x);
 const fail = (message: string, path = ''): { ok: false; errors: Diag[] } => ({ ok: false, errors: [{ path, message }] });
 
-/** What the content is, from its structure. Formats that arrive later are named, not claimed. */
-function observe(x: unknown, text: string): Exclude<Format, 'auto'> | string {
+/** What the content is, from its structure (discriminators and versions), never a file name. */
+function observe(x: unknown, text: string): Exclude<Format, 'auto' | 'curl-cmd'> | 'curl' | string {
   if (isObj(x)) {
     if (x.format === 'api-workbench' || isSchema1(x)) return 'native';
     if (isObj(x.log) && Array.isArray(x.log.entries)) return 'har';
-    if (x.swagger === '2.0') return 'Swagger 2.0 (import arrives in a later build)';
-    if (typeof x.openapi === 'string') return `OpenAPI ${x.openapi} (import arrives in a later build)`;
-    if (isObj(x.info) && (typeof x.info._postman_id === 'string' || String(x.info.schema ?? '').includes('postman'))) return 'Postman collection (import arrives in a later build)';
+    if (x.swagger === '2.0' && isObj(x.paths)) return 'swagger';
+    if (typeof x.swagger === 'string') return `Swagger ${x.swagger}`;
+    if (typeof x.openapi === 'string' && isObj(x.paths)) return 'openapi';
+    if (isObj(x.info) && Array.isArray(x.item) && (typeof x.info._postman_id === 'string' || String(x.info.schema ?? '').includes('schema.getpostman.com'))) return 'postman';
+    if (isObj(x.info) && Array.isArray(x.requests)) return 'Postman collection v1';
+    if (typeof x._postman_variable_scope === 'string' && Array.isArray(x.values)) return `Postman ${x._postman_variable_scope} file (variables only, not a collection; its values are not imported — enter them where requests name them)`;
+    return 'unrecognized content';
   }
-  if (/^\s*curl\s/i.test(text)) return 'cURL command (import arrives in a later build)';
-  if (/^\s*(await\s+)?fetch\s*\(/.test(text)) return 'copied fetch (import arrives in a later build)';
+  if (x !== undefined) return 'unrecognized content';
+  if (/^\s*curl\s|^\s*curl\.exe\s/i.test(text)) return 'curl';
+  if (/^\s*(await\s+)?fetch\s*\(/.test(text)) return 'fetch';
+  if (/^\s*(openapi|swagger)\s*:/m.test(text)) return 'YAML (only JSON documents are supported; convert it to JSON)';
   return 'unrecognized content';
 }
 
-export function parseSource(text: string, override: Format): { ok: true; value: Parsed } | { ok: false; errors: Diag[] } {
+const NAMES: Record<string, string> = { ...FORMAT_NAMES, curl: 'cURL command' };
+const SUPPORTED = 'API Workbench JSON, HAR 1.2, Swagger 2.0 JSON, OpenAPI 3.0 JSON, Postman collection v2.1, cURL (bash or Windows cmd) and copied fetch';
+
+export function parseSource(text: string, override: Format, o: { server?: number } = {}): { ok: true; value: Parsed } | { ok: false; errors: Diag[] } {
   if (utf8Bytes(text) > IMPORT_MAX_BYTES) return fail(`Input exceeds ${IMPORT_MAX_BYTES / 1024 / 1024} MiB; nothing was parsed`);
   if (!text.trim()) return fail('Paste or choose something to import');
   let x: unknown;
-  try { x = JSON.parse(text); } catch (e) {
-    const seen = observe(undefined, text);
-    return fail(seen === 'unrecognized content' ? `Not valid JSON: ${(e as Error).message}` : `Detected ${seen}. Supported now: ${Object.values(FORMAT_NAMES).join('; ')}.`);
-  }
+  let jsonError = '';
+  try { x = JSON.parse(text); } catch (e) { jsonError = (e as Error).message; }
   const seen = observe(x, text);
-  if (override !== 'auto' && seen !== override) return fail(`Format is set to ${FORMAT_NAMES[override]}, but the content looks like ${seen in FORMAT_NAMES ? FORMAT_NAMES[seen as 'native'] : seen}`);
+  const wanted = override === 'curl-bash' || override === 'curl-cmd' ? 'curl' : override;
+  if (override !== 'auto' && seen !== wanted) return fail(`Format is set to ${FORMAT_NAMES[override]}, but the content looks like ${NAMES[seen] ?? seen}`);
+  if (seen === 'curl') {
+    const r = parseCurl(text, override === 'curl-bash' ? 'bash' : override === 'curl-cmd' ? 'cmd' : undefined);
+    return r.ok ? { ok: true, value: { format: 'curl', ...r.value } } : r;
+  }
+  if (seen === 'fetch') {
+    const r = parseFetch(text);
+    return r.ok ? { ok: true, value: { format: 'fetch', ...r.value } } : r;
+  }
+  if (jsonError) return fail(seen === 'unrecognized content' ? `Not valid JSON, cURL or fetch: ${jsonError}. Supported: ${SUPPORTED}.` : `Detected ${seen}. Supported: ${SUPPORTED}.`);
+  if (seen === 'swagger' || seen === 'openapi' || seen === 'postman') {
+    const r = seen === 'swagger' ? parseSwagger(x as Obj) : seen === 'openapi' ? parseOpenApi(x as Obj, o.server) : parsePostman(x as Obj);
+    return r.ok ? { ok: true, value: { format: seen, ...r.value } } : r;
+  }
   if (seen === 'native') {
     const r = readImport(text);
     if (!r.ok) return r;
@@ -48,7 +77,7 @@ export function parseSource(text: string, override: Format): { ok: true; value: 
     return { ok: true, value: { format: 'native', label, read: r.value } };
   }
   if (seen === 'har') return parseHar(x as Obj);
-  return fail(`Detected ${seen}. Supported now: ${Object.values(FORMAT_NAMES).join('; ')}.`);
+  return fail(`Detected ${seen}. Supported: ${SUPPORTED}.`);
 }
 
 // ---------- HAR 1.2

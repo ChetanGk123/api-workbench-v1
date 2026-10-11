@@ -1,6 +1,6 @@
 # Delivery plan and first assigned slice
 
-Status: clean rebuild in this repository. R0–R6 are implemented (213 counted Chrome/core tests pass). The saved-bookmark size experiment ran in Chrome before R4 (byte-exact after restart up to 1.5 MiB; near 2 MiB breaks); a manual bar click, Edge, real-zoom, real-quota and resource gates are NOT RUN, so no slice is complete. See [R0](R0_REPORT.md), [R1](R1_REPORT.md), [R2](R2_REPORT.md), [R3](R3_REPORT.md), [R4](R4_REPORT.md), [R5](R5_REPORT.md) and [R6 evidence](R6_REPORT.md). The earlier `rebuild/v2` reports live in [history/](history/).
+Status: clean rebuild in this repository. R0–R7 are implemented (238 counted Chrome/core tests pass; R7's cURL/fetch dialect corpus was captured from Chrome 154's own DevTools generator, Edge NOT RUN). The saved-bookmark size experiment ran in Chrome before R4 (byte-exact after restart up to 1.5 MiB; near 2 MiB breaks); a manual bar click, Edge, real-zoom, real-quota and resource gates are NOT RUN, so no slice is complete. See [R0](R0_REPORT.md), [R1](R1_REPORT.md), [R2](R2_REPORT.md), [R3](R3_REPORT.md), [R4](R4_REPORT.md), [R5](R5_REPORT.md), [R6](R6_REPORT.md) and [R7 evidence](R7_REPORT.md). The earlier `rebuild/v2` reports live in [history/](history/).
 
 Use **R** labels to avoid rewriting the current repository's M0–M10 history. Every internal slice remains pre-release until full v1 and real-browser gates pass. No slice is an excuse to drop a later feature.
 
