@@ -30,7 +30,7 @@ interface Instance {
   if (w[LEGACY_KEY]) {
     rt.inert = true;
     // No hooks: Once still works, and "Apply rules" has no pipeline to enter, so it is the native fetch too.
-    const p = mountPanel(rt, { version: __VERSION__, session, fetchers: { direct: window.fetch, rules: window.fetch }, onClose: () => p.destroy() });
+    const p = mountPanel(rt, { version: __VERSION__, session, fetchers: { direct: (u, init) => window.fetch(u, init), rules: (u, init) => window.fetch(u, init) }, onClose: () => p.destroy() });
     p.notice('An older API Workbench is running on this page. Close it and reload before launching this version. No hooks were installed.');
     return;
   }
@@ -56,7 +56,7 @@ interface Instance {
     delete w[KEY];
   };
 
-  const panel = mountPanel(rt, { version: __VERSION__, session, fetchers: { direct: nativeFetch, rules: ((i, init) => rt.asTester(() => awFetch(i, init))) as typeof fetch }, onClose: close });
+  const panel = mountPanel(rt, { version: __VERSION__, session, fetchers: { direct: (u, init) => nativeFetch(u, init), rules: (u, init, on) => rt.asTester(() => awFetch(u, init), on && ((r) => on({ id: r.id, provider: r.provider === 'chaos' ? 'synthetic' : r.provider }))) }, onClose: close });
   const instance: Instance = {
     version: __VERSION__,
     relaunch(version) {

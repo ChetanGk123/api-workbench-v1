@@ -24,7 +24,7 @@ Must not auto-format a signed/raw body, silently change body type, set multipart
 
 ## Task S04.2 — Implement every body kind and expression insertion
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** exact serialization, files and binding/type semantics. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)); expression insertion (item 4) is R6. **Depends on:** S04.1, S19.2 and preparation service.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** exact serialization, files and binding/type semantics. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)); expression insertion added in R6 ([R6 evidence](../R6_REPORT.md)). **Depends on:** S04.1, S19.2 and preparation service.
 
 1. Keep raw text/JSON unchanged unless Format JSON is explicitly clicked; parser errors reference location without deleting input.
 2. Use ordered urlencoded/multipart row editors, repeated fields and runtime file selection with filename/size/type.

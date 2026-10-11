@@ -12,7 +12,7 @@ Must not average endpoint averages, use zero for unavailable duration, mix mock 
 
 ## Task S09.1 — Render accurate progress and aggregates
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** accounting/timing semantics create false results if wrong. **Status:** NOT STARTED. **Depends on:** S08.3, results aggregator.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** accounting/timing semantics create false results if wrong. **Status:** IMPLEMENTED; breakpoint/injected-delay timings are not separated ([R6 evidence](../R6_REPORT.md)). **Depends on:** S08.3, results aggregator.
 
 1. Read exact run snapshot/ID and derive logical progress separately from attempts and checks.
 2. Render outcome categories and per-endpoint display names with network/synthetic counts.
@@ -24,7 +24,7 @@ Must not average endpoint averages, use zero for unavailable duration, mix mock 
 
 ## Task S09.2 — Implement logical step details and sample saving
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** retries/polls/sample provenance need correct request identity. **Status:** NOT STARTED. **Depends on:** S09.1/S21 and sample commands.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** retries/polls/sample provenance need correct request identity. **Status:** IMPLEMENTED; Save sample/all has no browser case ([R6 evidence](../R6_REPORT.md)). **Depends on:** S09.1/S21 and sample commands.
 
 1. Expand iteration/job/step records with attempt IDs, correlation IDs, producer context, branch/poll state and final assertions.
 2. Keep failed refresh/uncertain write/body-unavailable reasons actionable, not buried in raw output.
@@ -36,7 +36,7 @@ Must not average endpoint averages, use zero for unavailable duration, mix mock 
 
 ## Task S09.3 — Implement export, history and rerun choices
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** snapshot/redaction and CSV correctness. **Status:** NOT STARTED. **Depends on:** S09.1, bounded history/export commands.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** snapshot/redaction and CSV correctness. **Status:** IMPLEMENTED; JSON/CSV and stored history verified in Chrome; Run again and retention have no browser case ([R6 evidence](../R6_REPORT.md)). **Depends on:** S09.1, bounded history/export commands.
 
 1. JSON includes schema/config/run identities, categories/timing definitions, retained/capped detail and redaction.
 2. CSV escapes quotes/newlines/delimiters and neutralizes user-controlled formula prefixes; preserve exact decimal/integer values.

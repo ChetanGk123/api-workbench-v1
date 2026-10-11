@@ -54,12 +54,12 @@ const V1 = {
       request: { method: 'GET', path: 'https://other.example.com/x', headers: [], bodyKind: 'text', body: 'ignored', credentials: 'omit' }, checks: [] },
   ],
   rules: [{ id: 'rule-1', profileId: 'default', kind: 'mock', label: 'Mock accounts', endpointId: 'endpoint-1', enabled: true, matcher: { method: 'GET', url: '/api/wires/accounts' } }],
-  plan: { id: 'plan-1', profileId: 'default', name: 'Working Plan', strategy: 'flow', mode: 'direct', phases: { 'endpoint-1': 'setup' }, excluded: ['endpoint-5'], iterations: 5, concurrency: 2, delayMs: 0, rampUp: false, onFailure: 'continue', notifyOnComplete: false, bindings: [] },
+  plan: { id: 'plan-1', profileId: 'default', name: 'Working Plan', strategy: 'flow', mode: 'direct', phases: { 'endpoint-1': 'setup' }, excluded: ['endpoint-5'], iterations: 5, concurrency: 2, delayMs: 0, rampUp: false, rampStepMs: 1000, onFailure: 'continue', notify: 'panel', notifyOnComplete: false, bindings: [] },
   savedProfiles: [{
     profile: { id: 'p2', name: 'staging', revision: 1, createdAt: 1, updatedAt: 1, environments: { default: { default: '' } }, activeEnvironment: 'default', globalHeaders: [], settings: { bodyLimitKb: 1024, enabledModules: {} } },
     endpoints: [{ id: 'e9', profileId: 'p2', alias: 'ping', name: 'Ping', hostKey: 'default', createdAt: 1, updatedAt: 1, request: { method: 'GET', path: '/ping', headers: [], bodyKind: 'none', body: '', credentials: 'same-origin' }, checks: [] }],
   }],
-  savedPlans: [{ id: 'plan-2', profileId: 'p2', name: 'Smoke', strategy: 'independent', mode: 'rules', phases: {}, excluded: [], iterations: 1, concurrency: 1, delayMs: 0, rampUp: false, onFailure: 'stop', notifyOnComplete: false, bindings: [] }],
+  savedPlans: [{ id: 'plan-2', profileId: 'p2', name: 'Smoke', strategy: 'independent', mode: 'rules', phases: {}, excluded: [], iterations: 1, concurrency: 1, delayMs: 0, rampUp: false, rampStepMs: 1000, onFailure: 'stop', notify: 'panel', notifyOnComplete: false, bindings: [] }],
 };
 
 test.describe('schema 2 validation (G21)', () => {
@@ -84,7 +84,7 @@ test.describe('schema 2 validation (G21)', () => {
     const a = agg();
     const e1 = ep(a), e2 = ep(a, { id: e1.id, alias: e1.alias }), e3 = ep(a, { request: { hostKey: 'nope' } });
     a.endpoints.push(e1, e2, e3);
-    a.plans.push({ id: 'p1', name: 'P', strategy: 'flow', mode: 'direct', steps: [{ endpointId: 'missing', phase: 'load' }], iterations: 1, concurrency: 1, delayMs: 0, rampUp: false, onFailure: 'continue' });
+    a.plans.push({ id: 'p1', name: 'P', strategy: 'flow', mode: 'direct', steps: [{ endpointId: 'missing', phase: 'load' }], iterations: 1, concurrency: 1, delayMs: 0, rampUp: false, rampStepMs: 1000, onFailure: 'continue', notify: 'panel' });
     const r = paths(validateAggregate(a));
     expect(r).toEqual(expect.arrayContaining(['endpoints.1.id', 'endpoints.1.alias', 'endpoints.2.request.hostKey', 'plans.0.steps.0.endpointId']));
     const proto = JSON.parse(JSON.stringify(agg()).replace('"stage":', '"__proto__":'));
@@ -102,7 +102,7 @@ test.describe('schema 2 validation (G21)', () => {
     a.signingRecipes.push({ id: 'sign-1', label: 'HMAC', algorithm: 'HMAC-SHA-256', components: ['method', 'path', 'timestamp', 'nonce', 'body-sha256', 'header:x-request-id'], separator: '\n', encoding: 'base64', keyRef: 'transfer_key', outputHeader: 'X-Signature', timestampHeader: 'X-Timestamp', nonceHeader: 'X-Nonce', freshnessMs: 30000 });
     post.signingRecipeId = 'sign-1';
     post.authContextId = 'auth-1';
-    a.plans.push({ id: 'pl', name: 'Transfer', strategy: 'flow', mode: 'direct', iterations: 1, concurrency: 1, delayMs: 0, rampUp: false, onFailure: 'stop', steps: [
+    a.plans.push({ id: 'pl', name: 'Transfer', strategy: 'flow', mode: 'direct', iterations: 1, concurrency: 1, delayMs: 0, rampUp: false, rampStepMs: 1000, onFailure: 'stop', notify: 'panel', steps: [
       { endpointId: post.id, phase: 'load', idempotency: { header: 'Idempotency-Key' }, assertions: [{ ref: 'transfer.amount', op: 'eq', value: '100.10' }] },
       { endpointId: get.id, phase: 'load', guard: { ref: 'transfer.status', op: 'eq', value: 'PENDING' }, poll: { readOnly: true, until: { ref: 'status.state', op: 'in', value: 'DONE,FAILED' }, maxAttempts: 10, intervalMs: 250, deadlineMs: 30000 } },
     ] });
@@ -195,7 +195,7 @@ test.describe('export redaction and copies', () => {
     a.endpoints.push(e);
     a.authContexts.push({ id: 'auth-1', label: 'A', identity: '', audience: 'api', credentials: 'include', headers: [], refresh: { endpointId: e.id, outputs: [], deadlineMs: 1000, readOnlyRetry: false } });
     e.authContextId = 'auth-1';
-    a.plans.push({ id: 'pl', name: 'P', strategy: 'flow', mode: 'direct', steps: [{ endpointId: e.id, phase: 'load' }], iterations: 1, concurrency: 1, delayMs: 0, rampUp: false, onFailure: 'continue' });
+    a.plans.push({ id: 'pl', name: 'P', strategy: 'flow', mode: 'direct', steps: [{ endpointId: e.id, phase: 'load' }], iterations: 1, concurrency: 1, delayMs: 0, rampUp: false, rampStepMs: 1000, onFailure: 'continue', notify: 'panel' });
     const c = copyAggregate(a, 'Copy');
     expect(validateAggregate(c).ok).toBe(true);
     expect(c.profile.id).not.toBe(a.profile.id);
@@ -251,7 +251,7 @@ test.describe('request preparation (G14/G15)', () => {
     const a = agg((x) => { x.profile.globalHeaders = [{ name: 'X-XSRF-TOKEN', value: '{{$cookie("XSRF-TOKEN")}}' }]; });
     const e = ep(a, { request: { url: '/v1/{{acct.id}}' } });
     const missing = prepare(a, e, PAGE, none, new Map());
-    expect(missing.blocked).toEqual(['URL: {{acct.id}} needs the expression engine (not in this build)', 'Header X-XSRF-TOKEN: cookie "XSRF-TOKEN" is not available on this page']);
+    expect(missing.blocked).toEqual(['URL: no endpoint has alias acct', 'Header X-XSRF-TOKEN: cookie "XSRF-TOKEN" is not available on this page']);
     e.request.url = '/v1/x';
     let token = 'tok-123456';
     const src = { ...none, cookie: (n: string) => (n === 'XSRF-TOKEN' ? token : undefined) };

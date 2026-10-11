@@ -23,7 +23,7 @@ Must not hide active interception behind Close, stop work on Minimize, imply pau
 
 ## Task S20.2 — Integrate pauses and completion notices
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** urgent pending work and dirty-view context. **Status:** PARTIAL: paused count, keyboard-reachable pause action and draft-keeping restore built; run completion notices wait for R6 ([R5 evidence](../R5_REPORT.md)). **Depends on:** S14, run notifications.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** urgent pending work and dirty-view context. **Status:** PARTIAL: paused count, keyboard-reachable pause action and draft-keeping restore built; R6 adds RUN progress to the launcher and an in-panel completion notice that does not restore the panel ([R5 evidence](../R5_REPORT.md), [R6 evidence](../R6_REPORT.md)). **Depends on:** S14, run notifications.
 
 1. Paused count updates by ID and deadline continues while hidden.
 2. Pause action restores queue without discarding another draft; offer return context.

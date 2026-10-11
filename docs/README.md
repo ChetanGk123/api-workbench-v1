@@ -1,6 +1,6 @@
 # API Workbench rebuild pack
 
-Written 10 October 2026; updated 11 October. **Clean from-scratch rebuild in this repository: R0–R5 implemented, verification incomplete** (see [R0 evidence](R0_REPORT.md), [R1 evidence](R1_REPORT.md), [R2 evidence](R2_REPORT.md), [R3 evidence](R3_REPORT.md), [R4 evidence](R4_REPORT.md), [R5 evidence](R5_REPORT.md)). R6–R8 are unstarted here. Reports from the earlier `rebuild/v2` worktree are kept in [history/](history/) as evidence about that code only.
+Written 10 October 2026; updated 11 October. **Clean from-scratch rebuild in this repository: R0–R6 implemented, verification incomplete** (see [R0 evidence](R0_REPORT.md), [R1 evidence](R1_REPORT.md), [R2 evidence](R2_REPORT.md), [R3 evidence](R3_REPORT.md), [R4 evidence](R4_REPORT.md), [R5 evidence](R5_REPORT.md), [R6 evidence](R6_REPORT.md)). R7–R8 are unstarted here. Reports from the earlier `rebuild/v2` worktree are kept in [history/](history/) as evidence about that code only.
 
 If I rebuilt this tool, I would keep its product and delivery model, replace its internal seams, and build it in tested vertical slices. The hard part is preserving browser behavior while making selected changes explainable. The UI and engine should share an explicit account of what matched, what actually changed, what was skipped and why.
 

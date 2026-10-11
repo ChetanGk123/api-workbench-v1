@@ -36,7 +36,7 @@ This screen must not duplicate every global header into each endpoint, silently 
 
 ## Task S03.3 — Implement environments and dependency analysis
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** origin/reference changes can misdirect requests. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)); Re-analyze/DAG (item 4) is R6. **Depends on:** DATA model and TESTER graph.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** origin/reference changes can misdirect requests. **Status:** IMPLEMENTED for the R2 scope; verification incomplete ([R2 evidence](../R2_REPORT.md)); the DAG is checked by plan preflight in R6, and no separate Re-analyze action exists ([R6 evidence](../R6_REPORT.md)). **Depends on:** DATA model and TESTER graph.
 
 1. Edit validated host-key→origin mappings per environment; reject schemes/paths/credentials not supported as origins.
 2. Preview affected endpoint destinations when switching/changing mappings; preserve absolute URLs until explicitly converted.

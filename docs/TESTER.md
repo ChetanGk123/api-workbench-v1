@@ -1,6 +1,6 @@
 # Tester, expressions and results
 
-Status: proposed rebuild execution contract. The runner is browser-local and uses one tab's account/cookie jar; isolated variables do not create independent authenticated users.
+Status: proposed rebuild execution contract. The runner is browser-local and uses one tab's account/cookie jar; isolated variables do not create independent authenticated users. R6 implements this contract in `src/tester/` with Chrome evidence and recorded boundaries ([R6 evidence](R6_REPORT.md)); tester sends use `cache: 'no-store'` so simultaneous identical URLs are not serialized by the browser cache and no cached response is reused.
 
 Complex banking/enterprise flows additionally require [COMPLEX_APPS](COMPLEX_APPS.md): transient auth contexts and explicit refresh, finite request-signing recipes, structured guards, bounded read-only polling, logical idempotency bindings and cross-step assertions. These requirements extend endpoint plans through typed fields, not arbitrary scripting. Include every possible bounded dispatch in preflight and network admission accounting.
 

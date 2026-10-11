@@ -2,6 +2,7 @@
 import type { Diag, Pair } from '../data/schema';
 import type { Session } from '../data/store';
 import type { Runtime } from '../net/runtime';
+import type { Transport } from '../tester/once';
 import { h, icon, type IconName } from './dom';
 
 export type Screen = 'home' | 'test' | 'mock' | 'intercept' | 'route' | 'chaos' | 'endpoints' | 'import' | 'settings' | 'detail' | 'pauses';
@@ -22,7 +23,7 @@ export interface Form {
 export interface Kit {
   rt: Runtime;
   session: Session;
-  fetchers: { direct: typeof fetch; rules: typeof fetch };
+  fetchers: { direct: Transport; rules: Transport };
   root: ShadowRoot;
   foot: HTMLElement;
   announce(text: string): void;
@@ -38,6 +39,12 @@ export interface Kit {
   runEndpoint(id: string): void;
   editEndpoint(id: string | null, extra?: (draft: unknown) => void): void;
   backButton(to: Screen, onClick: () => void): HTMLButtonElement;
+  /** In-panel notice with an optional action; does not restore a minimized panel. */
+  notice(text: string, action?: { label: string; run(): void }): void;
+  /** Open Test → Results for one run. */
+  showRun(id: string): void;
+  /** Coalesced chrome + current screen refresh (background state changed). */
+  changed(): void;
 }
 
 export const NAME: Record<Screen, string> = { home: 'Home', test: 'Test', mock: 'Mock', intercept: 'Intercept', route: 'Route', chaos: 'Chaos', endpoints: 'Endpoints', import: 'Import', settings: 'Settings', detail: 'request', pauses: 'Paused requests' };

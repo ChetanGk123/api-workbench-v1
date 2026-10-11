@@ -327,19 +327,21 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     }
     const recording = recorder.recording();
     const paused = pausesUi.waiting().length;
+    const running = testUi.runs.running();
     const pauseBtn = (cls: string) => {
       const b = h('button', { class: cls, type: 'button', 'aria-label': `${paused} paused — open paused requests`, title: 'Paused requests' }, icon('pause', 'aw-i aw-i14'), String(paused));
       b.addEventListener('click', () => { restore(); openPauses(); });
       return b;
     };
     indicators.replaceChildren(...(paused ? [pauseBtn('aw-bd aw-am aw-pausebtn')] : []),...act.map((m) => h('span', { class: 'aw-tbm', title: `${MOD[m].tab} module active` }, icon(MOD[m].icon, 'aw-i aw-i14'), h('span', { class: 'aw-dot aw-g' }))),
-      ...(recording ? [h('span', { class: 'aw-bd aw-am', id: 'aw-rec-ind', title: 'Recorder is capturing page calls' }, 'REC')] : []));
+      ...(recording ? [h('span', { class: 'aw-bd aw-am', id: 'aw-rec-ind', title: 'Recorder is capturing page calls' }, 'REC')] : []),
+      ...running.map((e) => h('span', { class: 'aw-bd aw-bl', id: 'aw-run-ind', title: `${e.summary.planName} is running` }, `RUN ${e.summary.progress.done}/${e.summary.progress.total}`)));
     launchInds.replaceChildren(...(paused ? [pauseBtn('aw-btn aw-gh aw-sm aw-ind aw-am')] : []), ...act.map((m) => {
       const b = h('button', { class: 'aw-btn aw-gh aw-ic aw-sm aw-ind', type: 'button', 'aria-label': `${MOD[m].tab} module active — open ${MOD[m].tab}` }, icon(MOD[m].icon), h('span', { class: 'aw-dot aw-g' }));
       b.addEventListener('click', () => { restore(); go(m); });
       return b;
     }));
-    launcherState.textContent = [act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active', paused ? `${paused} paused` : '', recording ? 'Recording' : ''].filter(Boolean).join(' · ');
+    launcherState.textContent = [act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active', paused ? `${paused} paused` : '', recording ? 'Recording' : '', ...running.map((e) => `Run ${e.summary.progress.done}/${e.summary.progress.total}`)].filter(Boolean).join(' · ');
     const name = session.agg().profile.name;
     const prof = header.querySelector('#aw-profile-name')!;
     prof.textContent = name;
@@ -356,14 +358,15 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
         b('Export…', () => go('settings'), 'aw-btn aw-gh aw-sm'));
     }
     if (!form) {
-      foot.hidden = act.length === 0 && !paused;
-      if (act.length || paused) {
+      foot.hidden = act.length === 0 && !paused && !running.length;
+      if (act.length || paused || running.length) {
         const stop = h('button', { class: 'aw-btn aw-out aw-sm', type: 'button' }, icon('stop', 'aw-i aw-i12'), 'Stop all');
         stop.addEventListener('click', () => {
           rulesUi.stopAll();
+          testUi.runs.stopAll('Stopped by Stop all');
           main.querySelector<HTMLElement>('[data-focus]')?.focus(); // the Stop all button just disappeared
         });
-        foot.replaceChildren(h('span', { class: 'aw-xs aw-mu aw-grow' }, [act.length ? `Active: ${act.map((m) => MOD[m].tab).join(', ')}` : '', paused ? `${paused} paused` : ''].filter(Boolean).join(' · ')), stop);
+        foot.replaceChildren(h('span', { class: 'aw-xs aw-mu aw-grow' }, [act.length ? `Active: ${act.map((m) => MOD[m].tab).join(', ')}` : '', paused ? `${paused} paused` : '', running.length ? `${running.length} run in progress` : ''].filter(Boolean).join(' · ')), stop);
       } else foot.replaceChildren();
     }
   }
@@ -464,6 +467,16 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     runEndpoint(id) { guard(() => { form = null; testUi.select(id); screen = 'test'; render(); }); },
     editEndpoint(id, extra) { endpointsUi.openEditor(id, here(), extra as Parameters<typeof endpointsUi.openEditor>[2]); },
     backButton: (to, onClick) => backButton(to, onClick),
+    notice(text, action) {
+      const close = h('button', { class: 'aw-btn aw-gh aw-ic aw-sm', type: 'button', 'aria-label': 'Dismiss notice' }, icon('x'));
+      close.addEventListener('click', () => { noticeEl.hidden = true; });
+      const act = action && h('button', { class: 'aw-btn aw-out aw-sm', type: 'button' }, action.label);
+      act?.addEventListener('click', () => { noticeEl.hidden = true; restore(); action!.run(); });
+      noticeEl.replaceChildren(h('div', { class: 'aw-row aw-gap6' }, icon('info', 'aw-i aw-i14'), h('span', { class: 'aw-grow aw-wrap' }, text), act ?? '', close));
+      noticeEl.hidden = false;
+    },
+    showRun(id) { guard(() => { form = null; testUi.showRun(id); screen = 'test'; render(); }); },
+    changed: () => schedule(),
   };
   const rulesUi = createRulesUi(kit, { traffic, statusBadge });
   const pausesUi = createPausesUi(kit);
@@ -514,7 +527,9 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       primary.addEventListener('click', () => (session.agg().endpoints.length ? go('test') : kit.editEndpoint(null)));
       refreshers.push(() => {
         const n = session.agg().endpoints.length;
-        sub.textContent = n ? `${n} endpoint${n === 1 ? '' : 's'} · Once ready · plans arrive in a later build` : 'No endpoints yet';
+        const plans = session.agg().plans.length;
+        const running = testUi.runs.running().length;
+        sub.textContent = n ? `${n} endpoint${n === 1 ? '' : 's'} · ${plans} plan${plans === 1 ? '' : 's'}${running ? ` · ${running} run in progress` : ''}` : 'No endpoints yet';
         primary.replaceChildren(icon(n ? 'play' : 'plus', 'aw-i aw-i14'), n ? 'Run once' : 'Create endpoint');
         primary.setAttribute('aria-label', n ? 'Run an endpoint once' : 'Create endpoint');
       });

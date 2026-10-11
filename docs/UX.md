@@ -1,6 +1,6 @@
 # UX and screen specification
 
-Status: v1 UI contract, grounded in the supplied screens and the [end-user review](../END_USER_TEST_REPORT.md). In the clean rebuild the R0 panel, the R1 shell and the R2 Endpoints/editor/Once/Settings workflows the R3 recorder/Import review and the R4 Mock/Intercept/Route/Chaos lists and editors and the R5 paused workspace exist ([R0_REPORT](R0_REPORT.md), [R1_REPORT](R1_REPORT.md), [R2_REPORT](R2_REPORT.md), [R3_REPORT](R3_REPORT.md), [R4_REPORT](R4_REPORT.md), [R5_REPORT](R5_REPORT.md)); other workflows below remain specifications.
+Status: v1 UI contract, grounded in the supplied screens and the [end-user review](../END_USER_TEST_REPORT.md). In the clean rebuild the R0 panel, the R1 shell and the R2 Endpoints/editor/Once/Settings workflows the R3 recorder/Import review and the R4 Mock/Intercept/Route/Chaos lists and editors and the R5 paused workspace and the R6 Plans/Results/Auth & context workspaces exist ([R0_REPORT](R0_REPORT.md), [R1_REPORT](R1_REPORT.md), [R2_REPORT](R2_REPORT.md), [R3_REPORT](R3_REPORT.md), [R4_REPORT](R4_REPORT.md), [R5_REPORT](R5_REPORT.md), [R6_REPORT](R6_REPORT.md)); other workflows below remain specifications.
 
 The detailed implementation assignments are in [screen-by-screen tasks](screens/README.md). This document owns shared UX rules; those task sheets expand individual screens and supporting workspaces, including model/effort recommendations.
 

@@ -12,7 +12,7 @@ Must not imply shared-session workers are separate bank customers, treat setup o
 
 ## Task S08.1 — Implement saved plans and phase editing
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** stable identities/order and reference updates. **Status:** NOT STARTED. **Depends on:** DATA plan commands, S00/S03.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** stable identities/order and reference updates. **Status:** IMPLEMENTED; rename/copy/delete/filter/reorder have no browser case ([R6 evidence](../R6_REPORT.md)). **Depends on:** DATA plan commands, S00/S03.
 
 1. Maintain one live plan ID before edits; saved copies keep profile ownership and explicit ordered steps.
 2. Build rename/copy/delete with dirty decision and reference-aware persistence; deleting live plan installs an explicit available plan.
@@ -24,7 +24,7 @@ Must not imply shared-session workers are separate bank customers, treat setup o
 
 ## Task S08.2 — Implement bounded configuration and complex step controls
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** guards/polls/auth and dependency semantics intersect. **Status:** NOT STARTED. **Depends on:** S08.1, S22/S19 and validated graph.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** guards/polls/auth and dependency semantics intersect. **Status:** IMPLEMENTED; verification incomplete ([R6 evidence](../R6_REPORT.md)); plans cannot attach files. **Depends on:** S08.1, S22/S19 and validated graph.
 
 1. Build explicit strategy/mode/numeric/failure/notify fields with DATA bounds and updated readback.
 2. Explain Flow concurrency as iterations and Independent as global request concurrency; label delay/ramp units and worker admission.
@@ -36,7 +36,7 @@ Must not imply shared-session workers are separate bank customers, treat setup o
 
 ## Task S08.3 — Integrate run admission, Stop and notification
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** scheduler correctness and cancellation under concurrency. **Status:** NOT STARTED. **Depends on:** S08.2 and TESTER scheduler/auth coordinator.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** scheduler correctness and cancellation under concurrency. **Status:** IMPLEMENTED; browser notification with permission and profile switch during a run NOT RUN; the notice does not restore a minimized panel ([R6 evidence](../R6_REPORT.md)). **Depends on:** S08.2 and TESTER scheduler/auth coordinator.
 
 1. Run plan once uses one repetition without changing saved Load settings; both run actions validate current preflight revision.
 2. Setup executes once; contexts/jobs follow declared Flow/Independent semantics; prerequisites refresh/poll consume admission slots without deadlock.

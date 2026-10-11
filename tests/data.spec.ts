@@ -324,7 +324,7 @@ test.describe('headers, presets, Promote common, environments, aliases (G14)', (
     await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
     await expect(page.getByRole('button', { name: 'Edit Account list (acct_list)' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Run Use once' }).click();
-    await expect(page.locator('#aw-once-blocked')).toContainText('{{acct_list.id}} needs the expression engine');
+    await expect(page.locator('#aw-once-blocked')).toContainText('no endpoint has alias acct_list');
   });
 });
 

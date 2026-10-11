@@ -72,3 +72,23 @@
 .aw-pre{margin:0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
 .aw-root details summary{cursor:pointer}
 .aw-alert strong{font-weight:600}
+/* R6 tester: plans, results, auth & context. */
+.aw-g4{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.aw-tile2{gap:2px;padding:8px 10px}
+.aw-scrollx{overflow-x:auto}
+.aw-table{width:100%;border-collapse:collapse;font-size:12px}
+.aw-table th,.aw-table td{padding:5px 6px;border-bottom:1px solid var(--aw-zinc-800);text-align:right;white-space:nowrap}
+.aw-table th[scope=row],.aw-table thead th:first-child{text-align:left;font-weight:500;white-space:normal}
+.aw-table thead th{color:var(--aw-zinc-400);font-weight:500}
+.aw-table td{font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.aw-step summary{list-style:none;padding:4px 0}
+.aw-step summary .aw-tr{min-width:0}
+.aw-steprow{gap:6px;padding:6px 0;border-bottom:1px solid var(--aw-zinc-800)}
+.aw-steprow>.aw-row{align-items:center}
+.aw-steprow>.aw-row>.aw-grow{flex:1 1 auto;min-width:96px}
+.aw-steprow>.aw-row>.aw-select{flex:0 0 96px}
+.aw-srcrow{flex-wrap:wrap}
+.aw-srcrow>.aw-in{flex:1 1 140px;min-width:120px}
+.aw-srcrow>.aw-select.aw-sm{flex:0 1 150px;min-width:110px}
+.aw-cond{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1.4fr) auto;gap:6px;align-items:center}
+.aw-cardin{border:1px solid var(--aw-zinc-800);border-radius:8px;padding:10px}

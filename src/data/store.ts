@@ -5,7 +5,7 @@
 import { copyAggregate, defaultProfile, validateAggregate, type Aggregate, type Diag } from './schema';
 
 const DB = 'api-workbench-v2';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const ACTIVE = 'activeProfile';
 
 export class Conflict extends Error {}
@@ -22,7 +22,7 @@ function open(): Promise<IDBDatabase> {
   conn ??= new Promise<IDBDatabase>((resolve, reject) => {
     const r = indexedDB.open(DB, DB_VERSION);
     r.onupgradeneeded = () => {
-      for (const name of ['profiles', 'metadata', 'recorderDrafts']) if (!r.result.objectStoreNames.contains(name)) r.result.createObjectStore(name);
+      for (const name of ['profiles', 'metadata', 'recorderDrafts', 'runSummaries']) if (!r.result.objectStoreNames.contains(name)) r.result.createObjectStore(name);
     };
     r.onsuccess = () => {
       const db = r.result;
@@ -111,6 +111,41 @@ export const recovery = {
     const done = new Promise<void>((resolve, reject) => { t.oncomplete = () => resolve(); t.onerror = t.onabort = () => reject(t.error ?? new Error('IndexedDB transaction failed')); });
     if (value === null) t.objectStore('recorderDrafts').delete('draft'); else t.objectStore('recorderDrafts').put(value, 'draft');
     await done;
+  },
+};
+
+/**
+ * Stored run summaries (R6): at most 20 and 2 MiB of UTF-8 per origin; the oldest are removed first.
+ * Summaries carry no active controllers, header values or query values.
+ */
+export const RUNS = { max: 20, bytes: 2 * 1024 * 1024 } as const;
+export const runStore = {
+  async list(): Promise<unknown[]> {
+    const db = await open();
+    return req(db.transaction('runSummaries', 'readonly').objectStore('runSummaries').getAll());
+  },
+  /** Add one summary and apply retention in the same transaction. Returns how many old ones were removed. */
+  async put(id: string, summary: { startedAt: number }): Promise<number> {
+    const db = await open();
+    const t = db.transaction('runSummaries', 'readwrite');
+    const st = t.objectStore('runSummaries');
+    const done = new Promise<void>((resolve, reject) => { t.oncomplete = () => resolve(); t.onerror = t.onabort = () => reject(t.error ?? new Error('IndexedDB transaction failed')); });
+    const all = ((await req(st.getAll())) as { id: string; startedAt: number }[]).filter((x) => x.id !== id);
+    const size = (x: unknown) => new TextEncoder().encode(JSON.stringify(x)).byteLength;
+    const keep = [{ id, startedAt: summary.startedAt, bytes: size(summary) }, ...all.map((x) => ({ id: x.id, startedAt: x.startedAt, bytes: size(x) }))].sort((a, b) => b.startedAt - a.startedAt);
+    let total = 0, removed = 0;
+    const drop: string[] = [];
+    keep.forEach((x, i) => { total += x.bytes; if (x.id !== id && (i >= RUNS.max || total > RUNS.bytes)) { drop.push(x.id); total -= x.bytes; } });
+    st.put(summary, id);
+    for (const d of drop) { st.delete(d); removed++; }
+    await done;
+    return removed;
+  },
+  async clear(): Promise<void> {
+    const db = await open();
+    const t = db.transaction('runSummaries', 'readwrite');
+    t.objectStore('runSummaries').clear();
+    await new Promise<void>((resolve, reject) => { t.oncomplete = () => resolve(); t.onerror = t.onabort = () => reject(t.error ?? new Error('IndexedDB transaction failed')); });
   },
 };
 
@@ -340,6 +375,7 @@ export function createSession(): Session {
       const fresh = defaultProfile();
       pending = 0;
       await s.replaceAll([fresh], fresh.profile.id, 'all');
+      await runStore.clear().catch(() => {});
     },
   };
   s.ready = load();

@@ -98,7 +98,7 @@ function convert(s: { profile: Obj; endpoints: unknown[]; rules: unknown[]; plan
   return {
     schema: SCHEMA, revision: 0, profile, endpoints,
     plans: s.plans.map((pl) => plan(pl, order)),
-    authContexts: [], signingRecipes: [],
+    authContexts: [], signingRecipes: [], bindings: [],
     rules: r.rules, legacyRules: r.rest,
   };
 }
@@ -206,6 +206,8 @@ function plan(x: Obj, order: string[]): Plan {
     concurrency: clamp(x.concurrency, 1, BOUNDS.concurrency, 1),
     delayMs: clamp(x.delayMs, 0, BOUNDS.delayMs, 0),
     rampUp: x.rampUp === true,
+    rampStepMs: 1000,
     onFailure: x.onFailure === 'stop' ? 'stop' : 'continue',
+    notify: 'panel',
   };
 }

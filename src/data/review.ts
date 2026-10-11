@@ -393,6 +393,10 @@ export function mergeNative(cur: Aggregate, incoming: Aggregate, cands: Candidat
     recipeMap.set(s.id, id);
     next.signingRecipes.push({ ...s, id });
   }
+  for (const b of inc.bindings) {
+    if (next.bindings.some((x) => x.name === b.name)) r.notes.push(`Binding ${b.name} already exists here; the existing one is kept`);
+    else next.bindings.push(b);
+  }
   for (const e of next.endpoints) {
     if (!r.addedIds.includes(e.id)) continue;
     if (e.authContextId) e.authContextId = ctxMap.get(e.authContextId) ?? e.authContextId;

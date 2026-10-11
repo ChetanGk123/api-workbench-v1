@@ -29,7 +29,8 @@ for (const input of Object.keys(minified.metafile.inputs)) {
   if (!input.startsWith('src/') && !input.startsWith('design/reference/')) failures.push(`unexpected bundled input ${input}`);
 }
 const forbidden = [
-  [/\beval\s*\(/, 'eval('],
+  // `$eval(` is the restricted expression keyword (data, parsed by src/tester/expr.ts), never a call.
+  [/(?<![$\w.])eval\s*\(|\.eval\s*\(/, 'eval('],
   [/new Function\b/, 'new Function'],
   [/\bimport\s*\(/, 'dynamic import'],
   [/importScripts/, 'importScripts'],

@@ -1,6 +1,6 @@
 # Complex applications and banking-style acceptance
 
-Status: required rebuild target, clarified by the user on 10 October 2026. **Design and acceptance specification, not a claim of tested banking compatibility.**
+Status: required rebuild target, clarified by the user on 10 October 2026. **Design and acceptance specification, not a claim of tested banking compatibility.** R6 adds the simulated banking fixture and a Chrome-only subset of G27; several rows remain partial or NOT RUN ([R6 evidence](R6_REPORT.md)).
 
 API Workbench must be useful on complex applications, including banking applications being developed. A small echo fixture proves individual mechanics; it does not prove that the tool handles an authenticated, stateful application. This contract adds a representative complex-app release gate without changing the full-inline bookmarklet distribution.
 

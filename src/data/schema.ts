@@ -63,7 +63,15 @@ export interface Endpoint {
 }
 
 /** Where a runtime value is read at dispatch. Definitions are stored; values never are. */
-export interface SourceRef { kind: 'cookie' | 'localStorage' | 'sessionStorage' | 'meta'; key: string }
+export interface SourceRef {
+  kind: 'cookie' | 'localStorage' | 'sessionStorage' | 'meta' | 'dom';
+  /** Cookie/storage key, meta name, or a CSS selector for dom. */
+  key: string;
+  /** dom only: which approved part of the one matching element is read. */
+  mode?: 'value' | 'text' | `attr:${string}`;
+}
+/** A named, user-selected page source for {{$context("name")}}. Only the reference is stored. */
+export interface Binding { name: string; source: SourceRef }
 
 export interface AuthContext {
   id: string;
@@ -113,7 +121,11 @@ export interface Plan {
   concurrency: number;
   delayMs: number;
   rampUp: boolean;
+  /** With rampUp: one more worker is admitted every rampStepMs. Absent in R2 data = 1000. */
+  rampStepMs: number;
   onFailure: 'continue' | 'stop';
+  /** Completion notice. Absent in R2 data = panel. Browser asks permission first and falls back to panel. */
+  notify: 'off' | 'panel' | 'browser';
 }
 
 // ---------- rules (R4). Runtime-only state (activation, cursors, samples, budgets used) is never stored.
@@ -244,6 +256,8 @@ export interface Aggregate {
   plans: Plan[];
   authContexts: AuthContext[];
   signingRecipes: SigningRecipe[];
+  /** Named page-source bindings (R6). Absent in R2–R5 data = none. */
+  bindings: Binding[];
   rules: Rule[];
   /** Schema 1 rules that could not be converted: kept as data, never executed. */
   legacyRules: unknown[];
@@ -511,7 +525,17 @@ function validateEndpoint(v: V, x: unknown, p: string): Endpoint {
 
 function sourceRef(v: V, x: unknown, p: string): SourceRef {
   const o = v.obj(x, p);
-  return { kind: v.oneOf(o, 'kind', p, ['cookie', 'localStorage', 'sessionStorage', 'meta'] as const), key: v.str(o, 'key', p, { min: 1, max: 256 }) };
+  const s: SourceRef = { kind: v.oneOf(o, 'kind', p, ['cookie', 'localStorage', 'sessionStorage', 'meta', 'dom'] as const), key: v.str(o, 'key', p, { min: 1, max: 256 }) };
+  if (s.kind === 'dom') {
+    const m = v.str(o, 'mode', p, { re: /^(value|text|attr:[A-Za-z_:][-A-Za-z0-9_.:]{0,63})$/, reMsg: 'Read value, text or attr:<name>' });
+    s.mode = m as NonNullable<SourceRef['mode']>;
+  }
+  return s;
+}
+
+function binding(v: V, x: unknown, p: string): Binding {
+  const o = v.obj(x, p);
+  return { name: v.str(o, 'name', p, { re: ALIAS, reMsg: 'Binding names start with a letter or _ and use letters, digits and _' }), source: sourceRef(v, o.source, `${p}.source`) };
 }
 
 const CONDITION_OPS = ['eq', 'ne', 'lt', 'lte', 'gt', 'gte', 'in', 'exists'] as const;
@@ -614,7 +638,9 @@ function plan(v: V, x: unknown, p: string): Plan {
     concurrency: v.int(o, 'concurrency', p, 1, BOUNDS.concurrency),
     delayMs: v.int(o, 'delayMs', p, 0, BOUNDS.delayMs),
     rampUp: v.bool(o, 'rampUp', p),
+    rampStepMs: o.rampStepMs === undefined ? 1000 : v.int(o, 'rampStepMs', p, 0, BOUNDS.delayMs),
     onFailure: v.oneOf(o, 'onFailure', p, ['continue', 'stop'] as const),
+    notify: o.notify === undefined ? 'panel' : v.oneOf(o, 'notify', p, ['off', 'panel', 'browser'] as const),
   };
 }
 
@@ -977,6 +1003,7 @@ export function validateAggregate(x: unknown): Result<Aggregate> {
     plans: v.arr(o.plans, 'plans', BOUNDS.plans).map((e, i) => plan(v, e, `plans.${i}`)),
     authContexts: v.arr(o.authContexts, 'authContexts', 50).map((e, i) => authContext(v, e, `authContexts.${i}`)),
     signingRecipes: v.arr(o.signingRecipes, 'signingRecipes', 50).map((e, i) => signingRecipe(v, e, `signingRecipes.${i}`)),
+    bindings: v.arr(o.bindings ?? [], 'bindings', 100).map((e, i) => binding(v, e, `bindings.${i}`)),
     rules: [],
     legacyRules: v.arr(o.legacyRules, 'legacyRules', 1000).map((r, i) => { if (!isObj(r)) v.err(`legacyRules.${i}`, 'Expected an object'); return r; }),
   };
@@ -1000,6 +1027,8 @@ function references(v: V, agg: Aggregate) {
   uniq(agg.plans, 'plans');
   const ctxs = uniq(agg.authContexts, 'authContexts');
   const recipes = uniq(agg.signingRecipes, 'signingRecipes');
+  const names = new Set<string>();
+  agg.bindings.forEach((b, i) => { if (names.has(b.name)) v.err(`bindings.${i}.name`, `Binding ${b.name} is already defined`); names.add(b.name); });
   const aliases = new Set<string>();
   const hostKeys = new Set(Object.values(agg.profile.environments).flatMap((h) => Object.keys(h)));
   agg.endpoints.forEach((e, i) => {
@@ -1049,7 +1078,7 @@ export function defaultProfile(name = 'Default'): Aggregate {
       environments: { default: { default: '' } }, activeEnvironment: 'default',
       globalHeaders: [], settings: { bodyCheckKb: BOUNDS.bodyCheckKb.default },
     },
-    endpoints: [], plans: [], authContexts: [], signingRecipes: [], rules: [], legacyRules: [],
+    endpoints: [], plans: [], authContexts: [], signingRecipes: [], bindings: [], rules: [], legacyRules: [],
   };
 }
 

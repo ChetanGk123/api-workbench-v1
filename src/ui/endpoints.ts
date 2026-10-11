@@ -5,6 +5,7 @@ import {
   type Aggregate, type Body, type BodyKind, type Check, type Diag, type Endpoint, type Header, type Pair, type Part,
 } from '../data/schema';
 import { describeCheck } from '../tester/once';
+import { exprPicker } from './context';
 import { h, icon } from './dom';
 import {
   btn, checkbox, countBadge, Errors, field, heading, input, methodBadge, pairRows, section, select, textarea, tile,
@@ -275,11 +276,16 @@ export function createEndpointsUi(kit: Kit) {
       kit.foot.replaceChildren(save, cancel);
       kit.foot.hidden = false;
 
-      const auth = cur.authContexts.length
-        ? field('Auth context', select<string>(draft.authContextId ?? '', [['', 'None'], ...cur.authContexts.map((a): [string, string] => [a.id, `${a.label} (${a.audience})`])], (v) => { if (v) draft.authContextId = v; else delete draft.authContextId; }), errs, 'authContextId', 'Definition only in this build: values are not applied to Once yet.')
-        : null;
-      return {
-        nodes: [
+      const auth = section('Auth and signing',
+        field('Auth context', select<string>(draft.authContextId ?? '', [['', 'None (headers above only)'], ...cur.authContexts.map((a): [string, string] => [a.id, `${a.label} (${a.audience})`])], (v) => { if (v) draft.authContextId = v; else delete draft.authContextId; }, { id: 'aw-ep-auth' }), errs, 'authContextId',
+          'Its headers are read from their sources at dispatch, only for its audience; explicit refresh if configured.'),
+        field('Signing recipe', select<string>(draft.signingRecipeId ?? '', [['', 'None'], ...cur.signingRecipes.map((r): [string, string] => [r.id, `${r.label} (${r.algorithm}, key ${r.keyRef})`])], (v) => { if (v) draft.signingRecipeId = v; else delete draft.signingRecipeId; }, { id: 'aw-ep-signing' }), errs, 'signingRecipeId',
+          'Signed with a fresh timestamp and nonce just before each send; needs its key loaded for this session.'),
+        h('p', { class: 'aw-hint aw-wrap' }, 'Define auth contexts, signing recipes and session keys in Test → Auth & context.'));
+      // Expression picker: inserts at the caret of the last focused text field of this editor.
+      let lastField: HTMLInputElement | HTMLTextAreaElement | null = null;
+      const picker = exprPicker(cur, draft.id, () => (lastField?.isConnected ? lastField : null), kit.announce);
+      const nodes: Node[] = [
           h('div', { class: 'aw-row' }, kit.backButton(ret.screen, () => kit.leaveForm()), heading(existing ? `Edit ${existing.name}` : 'New endpoint')),
           errs.summary,
           h('div', { class: 'aw-g2' },
@@ -300,10 +306,15 @@ export function createEndpointsUi(kit: Kit) {
           section('Body', bodySlot),
           section('Checks', checksSlot),
           section('Response sample', sampleSlot),
-          ...(auth ? [auth] : []),
+          auth,
           h('p', { class: 'aw-hint aw-wrap' }, `${draft.provenance}. Saving changes stored data only; nothing is sent.`),
-        ],
-      };
+      ];
+      const wrap = h('div', { class: 'aw-col aw-gap12' }, h('div', { class: 'aw-row aw-gap6' }, h('span', { class: 'aw-xs aw-mu aw-grow' }, 'Expressions: click a field, then pick'), picker), ...nodes.slice(1));
+      wrap.addEventListener('focusin', (ev) => {
+        const t = ev.target;
+        if ((t instanceof HTMLInputElement && (t.type === 'text' || t.type === '' || t.type === 'search')) || t instanceof HTMLTextAreaElement) lastField = t;
+      });
+      return { nodes: [nodes[0]!, wrap] };
     }
     kit.openForm(form);
   }

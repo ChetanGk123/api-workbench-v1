@@ -12,7 +12,7 @@ Must not walk all window globals, invoke getters/functions, poll for secrets sil
 
 ## Task S19.1 — Implement bounded explicit source scan
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** browser-global safety, bounds and masking. **Status:** NOT STARTED. **Depends on:** source reader with injected environment, DATA limits.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** browser-global safety, bounds and masking. **Status:** IMPLEMENTED; global roots are discovery only ([R6 evidence](../R6_REPORT.md)). **Depends on:** source reader with injected environment, DATA limits.
 
 1. Build categories/configured-root controls and Scan/Cancel; do not scan on workspace mount.
 2. Obtain storage/cookie/DOM access within error handling; safe own data descriptors/global depth/candidate count enforced.
@@ -24,7 +24,7 @@ Must not walk all window globals, invoke getters/functions, poll for secrets sil
 
 ## Task S19.2 — Build bindings and field insertion
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** site-specific escaping and dependent identity. **Status:** NOT STARTED. **Depends on:** S19.1, expression parser, S04/S08.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** site-specific escaping and dependent identity. **Status:** IMPLEMENTED; the picker lists built-ins, bindings and producer fields from saved samples ([R6 evidence](../R6_REPORT.md)). **Depends on:** S19.1, expression parser, S04/S08.
 
 1. Save binding definitions with unique names, explicit source/selector/attribute and auth-context ownership; no current value stored.
 2. Picker captures initiating field/selection and inserts chosen expression without losing input/caret on re-render.
@@ -36,7 +36,7 @@ Must not walk all window globals, invoke getters/functions, poll for secrets sil
 
 ## Task S19.3 — Verify fresh resolution and complex-app isolation
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** dynamic auth and per-context outputs under concurrency. **Status:** NOT STARTED. **Depends on:** S19.2, preparation/refresh/graph services.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** dynamic auth and per-context outputs under concurrency. **Status:** IMPLEMENTED; verification partial (CSRF rotation and fresh bearer in Chrome; audience isolation pure only) ([R6 evidence](../R6_REPORT.md)). **Depends on:** S19.2, preparation/refresh/graph services.
 
 1. Re-resolve selected sources before dispatch; missing/ambiguous source blocks with exact field/binding.
 2. Fresh value updates stay in owning auth context/audience; setup outputs read-only and iteration/job references independent.

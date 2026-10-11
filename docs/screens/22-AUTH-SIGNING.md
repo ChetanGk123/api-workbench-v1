@@ -12,7 +12,7 @@ Must not bypass normal MFA/device/authenticator flow, extract keys from closures
 
 ## Task S22.1 — Build auth-context definitions and masked availability
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** source/audience ownership and runtime/durable separation. **Status:** DEFINITION SCHEMA ONLY in R2 (validated/stored/exported; no workspace or runtime use) ([R2 evidence](../R2_REPORT.md)). **Depends on:** S19 bindings, DATA schema, endpoint credentials controls.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** source/audience ownership and runtime/durable separation. **Status:** IMPLEMENTED; verification incomplete ([R6 evidence](../R6_REPORT.md)). **Depends on:** S19 bindings, DATA schema, endpoint credentials controls.
 
 1. Edit validated label/identity/audience/environment/source references and expiry interpretation; headers select context-owned bindings.
 2. Show cookie-session scope vs distinct bearer contexts; profile/worker variables are not separate browser cookies/users.
@@ -24,7 +24,7 @@ Must not bypass normal MFA/device/authenticator flow, extract keys from closures
 
 ## Task S22.2 — Configure refresh and verify concurrency/cancellation
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** refresh races and late admission can send wrong authenticated requests. **Status:** DEFINITION SCHEMA ONLY in R2 (refresh mapping/deadline/retry bounds validated; no runtime). **Depends on:** S22.1, scheduler/context coordinator.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** refresh races and late admission can send wrong authenticated requests. **Status:** IMPLEMENTED; single-flight refresh verified pure (6 concurrent) and in Chrome ([R6 evidence](../R6_REPORT.md)). **Depends on:** S22.1, scheduler/context coordinator.
 
 1. Select explicit refresh endpoint and validated token/expiry output mappings; specify finite deadline and optional one read-only post-401 retry.
 2. Preview worst-case extra requests and failure policy; default no refresh/retry until configured.
@@ -36,7 +36,7 @@ Must not bypass normal MFA/device/authenticator flow, extract keys from closures
 
 ## Task S22.3 — Build finite signing recipe and integrity preview
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** canonical bytes/freshness/key availability require exact reasoning. **Status:** DEFINITION SCHEMA ONLY in R2 (HMAC-SHA-256 recipe validated; no signing). **Depends on:** S22.1, native signing preparation and controlled verifier fixture.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** canonical bytes/freshness/key availability require exact reasoning. **Status:** IMPLEMENTED for HMAC-SHA-256; stale/reused-nonce and Apply-rules-after-signing cases NOT RUN ([R6 evidence](../R6_REPORT.md)). **Depends on:** S22.1, native signing preparation and controlled verifier fixture.
 
 1. Start with explicitly configured HMAC-SHA-256 recipe from COMPLEX_APPS; fixed supported algorithms/components, no arbitrary plugin/code hook.
 2. Show canonical field order/encoding/body digest and redacted key reference; hold current key in runtime only.

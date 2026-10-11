@@ -72,7 +72,8 @@ export interface Runtime {
   /** Called once per captured call when its capture is complete (response preview read or skipped). */
   onCapture: ((rec: ReqRecord) => void) | null;
   /** Run `fn` with calls it starts synchronously labelled as tester traffic. */
-  asTester<T>(fn: () => T): T;
+  /** Run fn as tester traffic; onRecord receives the record its request creates (rules mode). */
+  asTester<T>(fn: () => T, onRecord?: (rec: ReqRecord) => void): T;
   /** Mark a record's capture complete and hand it to the recorder. */
   captured(rec: ReqRecord): void;
   config(): Config;
@@ -117,7 +118,7 @@ export function createRuntime(origin: string, initial: Config): Runtime {
   const subs = new Set<() => void>();
   const pending = new Set<() => void>();
   let bodySlots = 0;
-  let tester = false;
+  let tester: false | { on?: ((rec: ReqRecord) => void) | undefined } = false;
   let children = 0;
   const states: RuleStates = new Map();
   const changed = () => subs.forEach((fn) => fn());
@@ -130,8 +131,8 @@ export function createRuntime(origin: string, initial: Config): Runtime {
     inert: false,
     capturing: false,
     onCapture: null,
-    asTester(fn) {
-      tester = true;
+    asTester(fn, onRecord) {
+      tester = { on: onRecord };
       try { return fn(); } finally { tester = false; }
     },
     captured(rec) {
@@ -169,6 +170,7 @@ export function createRuntime(origin: string, initial: Config): Runtime {
         ...(parent && { parentId: parent.id }),
       };
       if (plan.route) rec.finalUrl = plan.route.to.origin + plan.route.to.pathname;
+      if (tester && !parent) { const on = tester.on; tester = false; on?.(rec); } // only the first record is the tester's
       list.push(rec);
       if (list.length > LIMITS.records) list.splice(0, list.length - LIMITS.records);
       changed();
