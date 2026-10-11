@@ -44,23 +44,50 @@ test.beforeEach(async ({ page }) => {
   await fresh(page);
 });
 
-test('installer: exact artifact, responsive layout, native disclosures and clipboard refusal', async ({ page }) => {
+test('installer: exact artifact, responsive layout, keyboard navigation and manual copy', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (r) => requests.push(r.url()));
   await page.goto(`${A}/install`);
   expect(await page.locator('#bookmark').getAttribute('href')).toBe(readFileSync('dist/bookmark.txt', 'utf8'));
+  await expect(page.locator('#bookmark')).toHaveAttribute('draggable', 'true');
   await expect(page.locator('#text')).toHaveValue(readFileSync('dist/bookmark.txt', 'utf8'));
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('link', { name: 'Skip to installation' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#install')).toBeFocused();
+  await expect(page.locator('#text')).toBeHidden();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as any).__copiedBookmark = text; } } });
+  });
+  await page.locator('#copy').click();
+  await expect(page.locator('#copied')).toHaveText('Copied. Paste it as the bookmark URL; copying does not install it.');
+  expect(await page.evaluate(() => (window as any).__copiedBookmark)).toBe(readFileSync('dist/bookmark.txt', 'utf8'));
+  await page.getByText('Prefer to install manually?', { exact: true }).click();
+  await expect(page.locator('#text')).toBeVisible();
+  await page.locator('#copy-manual').click();
+  await expect(page.locator('#copied-manual')).toHaveText('Copied. Paste it as the bookmark URL; copying does not install it.');
+  await page.locator('#manual > summary').click();
   await page.getByText('Update to a newer build', { exact: true }).click();
   await expect(page.getByText('This build has no update address.', { exact: false })).toBeVisible();
-  for (const width of [1280, 390]) {
+  for (const width of [1440, 1280, 960, 768, 720, 390, 320]) {
     await page.setViewportSize({ width, height: 800 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { value: undefined }); });
   await page.locator('#copy').click();
-  await expect(page.locator('#copied')).toHaveText('Clipboard refused. Select the text above and copy it manually.');
+  await expect(page.locator('#copied')).toHaveText('Clipboard refused. Copy the complete text in the manual installation section.');
+  await expect(page.locator('#text')).toBeVisible();
+  await page.locator('#copy-manual').click();
+  await expect(page.locator('#copied-manual')).toHaveText('Clipboard refused. Copy the complete text in the manual installation section.');
   expect(requests).toEqual([`${A}/install`]);
-  await page.screenshot({ path: 'docs/evidence/r8-installer-mobile.png' });
+  await page.locator('#manual > summary').click();
+  await page.getByText('Update to a newer build', { exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await page.screenshot({ path: 'test-results/installer-mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.reload();
+  await page.screenshot({ path: 'test-results/installer-desktop.png', fullPage: true });
 });
 
 test('resources: idle has no requests; same-path burst joins captures; recorder byte cap and Close remain usable', async ({ page, browser }) => {
