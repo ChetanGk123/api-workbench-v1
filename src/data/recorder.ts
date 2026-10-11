@@ -5,7 +5,8 @@ import type { Runtime } from '../net/runtime';
 import { utf8Bytes } from './schema';
 import { recovery } from './store';
 
-export const RECORDER = { maxCalls: 100, envelopeBytes: 1024 * 1024, recoverySchema: 1 } as const;
+/** maxCalls is the absolute cap; the profile's recorderCalls setting is the working limit. */
+export const RECORDER = { maxCalls: 1000, envelopeBytes: 1024 * 1024, recoverySchema: 1 } as const;
 
 export interface Recorder {
   recording(): boolean;
@@ -13,6 +14,8 @@ export interface Recorder {
   captures(): readonly Capture[];
   bytes(): number;
   includeTester(): boolean;
+  /** Working call limit (profile setting). */
+  limit(): number;
   setIncludeTester(v: boolean): void;
   /** Why capture stopped by itself (limit), or ''. */
   stopReason(): string;
@@ -28,11 +31,14 @@ export interface Recorder {
   /** Remove these captures from the draft (after a successful promotion, or a delete). */
   remove(ids: number[]): void;
   saveSelection(): void;
+  prefsChanged(): void;
   subscribe(fn: () => void): () => void;
   dispose(): void;
 }
 
-export function createRecorder(rt: Runtime): Recorder {
+export interface RecorderPrefs { calls: number; recovery: boolean }
+
+export function createRecorder(rt: Runtime, prefs: () => RecorderPrefs): Recorder {
   let list: Capture[] = [];
   let size = 0;
   let started = 0;
@@ -51,7 +57,7 @@ export function createRecorder(rt: Runtime): Recorder {
   function save() {
     clearTimeout(timer);
     timer = undefined;
-    const value = list.length ? { schema: RECORDER.recoverySchema, origin: rt.origin, savedAt: Date.now(), captures: list, deselected: [...deselected] } : null;
+    const value = list.length && prefs().recovery ? { schema: RECORDER.recoverySchema, origin: rt.origin, savedAt: Date.now(), captures: list, deselected: [...deselected] } : null;
     recovery.put(value).then(() => { if (saveErr) { saveErr = ''; changed(); } }, (e: unknown) => {
       saveErr = `Recovery copy not saved (${e instanceof Error ? e.message : String(e)}). The draft is kept in this tab; export it to keep it.`;
       changed();
@@ -64,11 +70,12 @@ export function createRecorder(rt: Runtime): Recorder {
     if (!c || c.at < since) return;
     if (c.source === 'tester' && !tester) return;
     const n = utf8Bytes(JSON.stringify(c));
-    if (list.length >= RECORDER.maxCalls || size + n + envelope() > RECORDER.envelopeBytes) {
+    const max = prefs().calls;
+    if (list.length >= max || size + n + envelope() > RECORDER.envelopeBytes) {
       if (rt.capturing) {
         rt.capturing = false;
-        reason = list.length >= RECORDER.maxCalls
-          ? `Stopped at the ${RECORDER.maxCalls}-call limit. Review or export this draft, then Reset to record more.`
+        reason = list.length >= max
+          ? `Stopped at the ${max}-call limit. Review or export this draft, then Reset to record more.`
           : `Stopped at the ${RECORDER.envelopeBytes / 1024 / 1024} MiB draft limit. Review or export this draft, then Reset to record more.`;
       }
       changed();
@@ -86,6 +93,7 @@ export function createRecorder(rt: Runtime): Recorder {
     captures: () => list,
     bytes: () => size,
     includeTester: () => tester,
+    limit: () => prefs().calls,
     setIncludeTester(v) { tester = v; changed(); },
     stopReason: () => reason,
     recoveredAt: () => recovered,
@@ -93,7 +101,7 @@ export function createRecorder(rt: Runtime): Recorder {
     deselected,
     start() {
       if (rt.capturing) return;
-      if (list.length >= RECORDER.maxCalls) { reason = `The draft already holds ${RECORDER.maxCalls} calls. Review or export it, then Reset to record more.`; return changed(); }
+      if (list.length >= prefs().calls) { reason = `The draft already holds ${list.length} calls (limit ${prefs().calls}). Review or export it, then Reset to record more.`; return changed(); }
       reason = '';
       started = Date.now();
       rt.capturing = true;
@@ -128,6 +136,8 @@ export function createRecorder(rt: Runtime): Recorder {
       save();
     },
     saveSelection: later,
+    /** Settings changed: write or remove the recovery copy to match. */
+    prefsChanged() { later(); },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
     dispose() {
       rt.capturing = false;
@@ -140,7 +150,7 @@ export function createRecorder(rt: Runtime): Recorder {
   // Restore an inactive draft. Stored data is untrusted: only well-formed calls are kept, within the limits.
   recovery.get().then((raw) => {
     const o = raw as { schema?: unknown; origin?: unknown; savedAt?: unknown; captures?: unknown; deselected?: unknown } | undefined;
-    if (!o || o.schema !== RECORDER.recoverySchema || o.origin !== rt.origin || !Array.isArray(o.captures) || list.length) return;
+    if (!prefs().recovery || !o || o.schema !== RECORDER.recoverySchema || o.origin !== rt.origin || !Array.isArray(o.captures) || list.length) return;
     const ok = o.captures.filter((c): c is Capture => !!c && typeof c === 'object' && typeof (c as Capture).method === 'string' && typeof (c as Capture).url === 'string'
       && Array.isArray((c as Capture).query) && Array.isArray((c as Capture).headers) && !!(c as Capture).body && typeof (c as Capture).body === 'object' && Number.isSafeInteger((c as Capture).id));
     for (const c of ok.slice(0, RECORDER.maxCalls)) {

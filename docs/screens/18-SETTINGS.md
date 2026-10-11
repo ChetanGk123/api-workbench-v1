@@ -24,7 +24,7 @@ Must not duplicate confusing Save meanings, silently stop work/drop drafts on sw
 
 ## Task S18.2 — Wire module/resource/context settings and failure state
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** settings must change resources, not just UI. **Status:** PARTIAL: body-check limit and Unsaved/Retry/Export state only ([R2 evidence](../R2_REPORT.md)). **Depends on:** S18.1, lifecycle/body/recorder policy.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** settings must change resources, not just UI. **Status:** IMPLEMENTED: module/resource/capture/recovery/context controls with Chrome regression evidence ([R8 evidence](../R8_REPORT.md)); Edge and human acceptance remain open. **Depends on:** S18.1, lifecycle/body/recorder policy.
 
 1. Bind module visibility to navigation/card and engine selection; switching Recorder off ends capture and retains draft.
 2. Build numeric bounded limits/reset defaults with effective readback and overflow explanation.
@@ -36,7 +36,7 @@ Must not duplicate confusing Save meanings, silently stop work/drop drafts on sw
 
 ## Task S18.3 — Implement About, data clearing and data-only update
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** user data loss and stale update artifacts. **Status:** PARTIAL: Clear local data and About version/site only; update check NOT STARTED ([R2 evidence](../R2_REPORT.md)). **Depends on:** S18.1, deployed manifest/bookmark validation.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** user data loss and stale update artifacts. **Status:** IMPLEMENTED: About/check/copy/clear with bounded, owned data-only reads and Chrome assertions ([R8 evidence](../R8_REPORT.md)); full native update/restart and Edge remain open. **Depends on:** S18.1, deployed manifest/bookmark validation.
 
 1. About reports bundled version/origin/storage/last-known published comparison; Check only starts on explicit click using captured transport.
 2. Bound manifest/bookmark reads, validate version/hash/text consistency, never execute downloaded text.

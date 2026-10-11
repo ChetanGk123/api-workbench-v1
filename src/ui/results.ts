@@ -53,7 +53,7 @@ export function createRuns(kit: Kit, auth: AuthCoordinator, onChange: () => void
       const text = `${sum.planName} ${sum.kind === 'once' ? 'one pass' : 'Load'} ${sum.state}: ${summaryLine(sum)}`;
       kit.announce(text);
       if (plan.notify !== 'off') notify(plan, text, handle.id);
-      if (sum.state === 'failed-preflight') return;
+      if (sum.state === 'failed-preflight' || !entries.includes(e)) return;
       try {
         const removed = await runStore.put(sum.id, structuredClone(sum));
         e.stored = true;

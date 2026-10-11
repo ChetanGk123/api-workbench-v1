@@ -64,11 +64,17 @@ export interface Pause {
   outcome?: string;
 }
 
+export interface Prefs { records: number; responseBodies: boolean }
+
 export interface Runtime {
   readonly origin: string;
   inert: boolean;
   /** Recorder on: adapters build a capture for each new call. */
   capturing: boolean;
+  /** Profile settings the adapters read at intake (R8). */
+  readonly prefs: Readonly<Prefs>;
+  /** Apply new settings; a lower record limit drops the oldest records now. */
+  setPrefs(p: Prefs): void;
   /** Called once per captured call when its capture is complete (response preview read or skipped). */
   onCapture: ((rec: ReqRecord) => void) | null;
   /** Run `fn` with calls it starts synchronously labelled as tester traffic. */
@@ -130,6 +136,13 @@ export function createRuntime(origin: string, initial: Config): Runtime {
     origin,
     inert: false,
     capturing: false,
+    prefs: { records: LIMITS.records, responseBodies: true },
+    setPrefs(p) {
+      if (p.records === rt.prefs.records && p.responseBodies === rt.prefs.responseBodies) return;
+      (rt as { prefs: Prefs }).prefs = { ...p };
+      if (list.length > p.records) list.splice(0, list.length - p.records);
+      changed();
+    },
     onCapture: null,
     asTester(fn, onRecord) {
       tester = { on: onRecord };
@@ -172,7 +185,7 @@ export function createRuntime(origin: string, initial: Config): Runtime {
       if (plan.route) rec.finalUrl = plan.route.to.origin + plan.route.to.pathname;
       if (tester && !parent) { const on = tester.on; tester = false; on?.(rec); } // only the first record is the tester's
       list.push(rec);
-      if (list.length > LIMITS.records) list.splice(0, list.length - LIMITS.records);
+      if (list.length > rt.prefs.records) list.splice(0, list.length - rt.prefs.records);
       changed();
       return rec;
     },

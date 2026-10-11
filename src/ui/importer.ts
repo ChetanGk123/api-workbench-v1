@@ -517,7 +517,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const refocus = ui.rec.contains(kit.root.activeElement) ? (kit.root.activeElement as HTMLElement).id : '';
     ui.rec.replaceChildren(
       h('div', { class: 'aw-row aw-gap6' }, h('span', { class: `aw-bd ${on ? 'aw-gr' : ''}`, id: 'aw-rec-state' }, on ? h('span', { class: 'aw-dot aw-g' }) : '', status)),
-      h('div', { class: 'aw-xs aw-wrap', id: 'aw-rec-count' }, `${n} of ${RECORDER.maxCalls} calls · ${kib(rec.bytes())} of ${RECORDER.envelopeBytes / 1024 / 1024} MiB`),
+      h('div', { class: 'aw-xs aw-wrap', id: 'aw-rec-count' }, `${n} of ${rec.limit()} calls · ${kib(rec.bytes())} of ${RECORDER.envelopeBytes / 1024 / 1024} MiB`),
       rec.stopReason() ? h('p', { class: 'aw-alert aw-wrap', id: 'aw-rec-reason' }, rec.stopReason()) : '',
       rec.recoveryError() ? h('p', { class: 'aw-alert aw-wrap', id: 'aw-rec-recovery' }, rec.recoveryError()) : '',
       h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },
@@ -575,7 +575,9 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     return {
       nodes: [
         h('div', { class: 'aw-row aw-gap10' }, kit.backButton('home', () => kit.go('home')), tile('import'), heading('Import')),
-        section('Recorder',
+        kit.session.agg().profile.settings.hidden.includes('recorder')
+          ? h('p', { class: 'aw-hint aw-wrap', id: 'aw-rec-hidden' }, 'The recorder is hidden in Settings → Modules. Its draft is kept; show it again to review or record.')
+          : section('Recorder',
           h('p', { class: 'aw-hint aw-wrap' }, 'Captures this frame’s Fetch/XHR calls made after Start, including while the panel is minimized. Earlier calls, workers, other frames and cached responses are not captured. Secrets in headers, query and JSON fields are redacted before they are shown or kept.'),
           recEl),
         section('Source',

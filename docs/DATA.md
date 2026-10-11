@@ -37,6 +37,19 @@ A profile export includes its endpoints/rules/plans and settings, not all profil
 
 ## Separate runtime types
 
+R8 persists these profile settings in schema 2; omitted fields in earlier schema 2 data get these defaults. Validation still refuses invalid explicit values. See [R8 evidence](R8_REPORT.md).
+
+| Setting | Default | Bound / behavior |
+| --- | --- | --- |
+| `hidden` | empty | Mock/Intercept/Route/Chaos/Recorder only; hidden modules stop future work |
+| `activityRecords` | 500 | 50–500; lowering immediately evicts oldest metadata |
+| `recorderCalls` | 100 | 10–1000 plus the independent 1 MiB draft budget |
+| `responseBodies` | true | Off skips new previews and cancels pending recorder response reads |
+| `recorderRecovery` | true | Off removes the current-origin recovery copy; the live draft remains |
+| `contextRoots` | empty | At most 20 unique global identifier names, each at most 64 characters; scanning remains explicit |
+
+`bodyCheckKb` retains its R2 bound/default. About's last-checked version/time lives in `api-workbench:update:v1` localStorage, alongside the separate geometry preference. Downloaded bookmark text is never stored or executed by the update checker. Clear local data includes these preference keys, recorder draft/recovery, activity and run history; it leaves the schema 1 database and unrelated host keys alone.
+
 Native Requests/Responses, XHR objects, DOM nodes, files, controllers, listeners, timers, live discovered values, secret values, sequence cursors, replay children and scheduling state never enter configuration JSON. Draft file descriptors can name required files, but launching/importing cannot read them; a run requires explicit file selection again.
 
 A request record has a request ID and optional parent/run/iteration/job/step IDs, immutable original/effective metadata, selected/applied/skipped operations, reason codes, timings, outcome and preview references. Preview storage is a bounded shared cache keyed by request ID; module lists reference it rather than making unlimited copies.

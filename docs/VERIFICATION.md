@@ -1,12 +1,12 @@
 # Verification and release gates
 
-Status: rebuild verification contract. Gates initially started **NOT RUN**; current subset results and remaining gaps for the clean rebuild are recorded in [R0_REPORT](R0_REPORT.md); earlier `rebuild/v2` results are in [history/](history/). No full release gate is implied by a subset pass. Prior results in the [end-user report](../END_USER_TEST_REPORT.md) apply only to that reviewed build.
+Status: rebuild verification contract. Gates initially started **NOT RUN**; current results and remaining gaps for the clean rebuild are recorded in [R8_REPORT](R8_REPORT.md); earlier `rebuild/v2` results are in [history/](history/). No full release gate is implied by a subset pass. Prior results in the [end-user report](../END_USER_TEST_REPORT.md) apply only to that reviewed build.
 
 ## One counted runner
 
 Use one Playwright Test runner for pure core assertions and browser cases, matching most existing tests. Pure tests receive explicit clocks/random/context/storage fixtures and do not require browser globals. Browser contract cases use real installed Chrome/Edge. If any other runner is retained, it must have a distinct command included in the top-level exit code and report; a printed failure outside the counted suite is unacceptable.
 
-Build/type/bundle checks and tests are separate mandatory steps. `npm run verify` is the **proposed** rebuild command that will run all of them; it does not exist today. Do not change scripts merely by documenting them as completed.
+Build/type/bundle checks and tests are separate mandatory steps. `npm run verify` exists and runs strict types, the standalone build checks and the counted Playwright suite. Do not change scripts merely by documenting them as completed.
 
 Tests assert product behavior, not copies of implementation functions. Mock tests compare server-hit deltas; transport tests compare native control traces; import tests verify no requests/code execution and durable state; race tests control order. Add a small focused regression with each nontrivial fix, not a giant generic snapshot.
 
@@ -103,14 +103,14 @@ Verify UTF-8 accounting and monotonic sample counts. Memory observations are emp
 
 For each gate: PASS/FAIL/NOT RUN, artifact/version/browser, exact command or manual installation steps, assertion/result, evidence path and limitation. Publish size/hash/format/capability matrices for the exact build. Count every intended test, including failures before test collection. Required FAIL/NOT RUN prevents marking the associated slice/release complete.
 
-Current repository commands (these exist, unlike proposed rebuild scripts):
+Current repository commands (see [RELEASE](RELEASE.md) for ports and standalone bookmark probes):
 
 ```sh
 npm ci
 npm run build
-npm run server
+npm run fixture
 npm test
 AW_BROWSER=msedge npm test
 ```
 
-The standard test config starts its own server; do not run it against occupied ports without an explicit existing-server configuration. New rebuild scripts/config are implemented in R0. Their documented startup and verification paths must be checked as part of G01/G26.
+The standard test config starts its own server; do not run it against occupied ports without an explicit existing-server configuration. Rebuild scripts/config were implemented in R0; R8 adds update and saved-bookmark probes. Their documented startup and verification paths must be checked as part of G01/G26.

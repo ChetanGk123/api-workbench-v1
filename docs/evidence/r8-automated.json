@@ -1,0 +1,49 @@
+{
+  "command": "AW_PORT=4330 AW_OTHER_PORT=4331 npm run verify",
+  "version": "2.0.0-r8",
+  "artifact": {
+    "readable": "a221809aba658c1dd4c9cf3b8732ea85118707896052837df050ac7b15ae6f9c",
+    "minified": "374ed01598d352924b9d1b4329bec7f58d884771d9e6b0e78dda6f19090ce300",
+    "bookmark": "c0a66bec9b7e3873e4b99d2d52705afac77189ae1953d878141c8a40e2c2837d"
+  },
+  "stats": {
+    "startTime": "2026-10-11T15:41:12.220Z",
+    "duration": 144204.277,
+    "expected": 270,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "projects": {
+    "core": {
+      "passed": 131,
+      "skipped": 0,
+      "failed": 0
+    },
+    "chrome": {
+      "passed": 139,
+      "skipped": 1,
+      "failed": 0
+    }
+  },
+  "skipped": [
+    {
+      "project": "chrome",
+      "title": "real IndexedDB quota refusal leaves the saved profile intact and Retry saves the live draft",
+      "status": "skipped",
+      "result": "skipped",
+      "annotations": [
+        {
+          "type": "skip",
+          "description": "Real quota gate NOT RUN: Chrome accepted 16 MiB under a 32 KiB override; this environment does not enforce the probe quota",
+          "location": {
+            "file": "/Users/chetangk/Developer/tools/api-workbench-v1/tests/release.spec.ts",
+            "line": 490,
+            "column": 10
+          }
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

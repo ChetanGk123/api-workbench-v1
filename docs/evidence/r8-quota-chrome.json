@@ -1,0 +1,28 @@
+{
+  "browser": "154.0.8037.99",
+  "quota": {
+    "usage": 16804327,
+    "quota": 32768,
+    "overrideActive": true,
+    "usageBreakdown": [
+      {
+        "storageType": "file_systems",
+        "usage": 0
+      },
+      {
+        "storageType": "indexeddb",
+        "usage": 16804327
+      },
+      {
+        "storageType": "cache_storage",
+        "usage": 0
+      },
+      {
+        "storageType": "service_workers",
+        "usage": 0
+      }
+    ]
+  },
+  "result": "quota not enforced within 16 MiB",
+  "maxProbeBytes": 16777216
+}

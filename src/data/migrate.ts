@@ -1,7 +1,7 @@
 // Schema 1 → schema 2. Pure: reads untrusted schema 1 JSON (an export, a backup or the stored
 // `api-workbench` record) and returns validated schema 2 aggregates, or diagnostics and no data.
 // Never guesses missing body/auth intent; raw text is kept exactly.
-import {
+import { defaultSettings,
   BOUNDS, copyAggregate, rulesFromV1, SCHEMA, utf8Bytes, validateAggregate,
   type Aggregate, type Body, type Check, type Diag, type Endpoint, type Plan, type Profile, type Sample, type Step,
 } from './schema';
@@ -89,7 +89,7 @@ function convert(s: { profile: Obj; endpoints: unknown[]; rules: unknown[]; plan
     environments: environments as Profile['environments'],
     activeEnvironment: typeof p.activeEnvironment === 'string' && p.activeEnvironment ? p.activeEnvironment : Object.keys(environments)[0]!,
     globalHeaders: globals.filter((h) => !h.removed).map((h) => ({ name: String(h.name ?? '').trim(), value: String(h.value ?? '') })),
-    settings: { bodyCheckKb: clamp(settings.bodyLimitKb, BOUNDS.bodyCheckKb.min, BOUNDS.bodyCheckKb.max, BOUNDS.bodyCheckKb.default) },
+    settings: { ...defaultSettings(), bodyCheckKb: clamp(settings.bodyLimitKb, BOUNDS.bodyCheckKb.min, BOUNDS.bodyCheckKb.max, BOUNDS.bodyCheckKb.default) },
   };
   const endpoints = s.endpoints.map((e) => endpoint(e, notes));
   const order = endpoints.map((e) => e.id);

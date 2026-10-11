@@ -98,6 +98,12 @@ export function createRulesUi(kit: Kit, deps: {
       if (was || n) kit.announce(`Profile switched: every module is now inactive.${n ? ` ${n} paused item${n > 1 ? 's' : ''} continued unchanged.` : ''}`);
     }
     lastProfile = agg.profile.id;
+    // A hidden module has no effect on traffic: it is never active (Settings → Modules).
+    const hidden = agg.profile.settings.hidden.filter((m): m is Module => m !== 'recorder' && active[m]);
+    if (hidden.length) {
+      active = { ...active, ...Object.fromEntries(hidden.map((m) => [m, false])) };
+      kit.announce(`${hidden.map((m) => MOD[m].tab).join(', ')} hidden in Settings: deactivated. Requests already in progress keep their selected behavior.`);
+    }
     const sig = JSON.stringify([rules, active]);
     if (sig === lastSig) return;
     lastSig = sig;
@@ -105,6 +111,7 @@ export function createRulesUi(kit: Kit, deps: {
   }
 
   function setActive(m: Module, v: boolean) {
+    if (v && s.agg().profile.settings.hidden.includes(m)) return kit.announce(`${MOD[m].tab} is hidden in Settings; show it there first.`);
     rt.setConfig({ rules: cfg().rules, active: { ...cfg().active, [m]: v } });
     lastSig = JSON.stringify([cfg().rules, cfg().active]);
     kit.announce(`${MOD[m].tab} module ${v ? 'activated' : 'deactivated'}.${v ? '' : ' Requests already in progress keep their selected behavior.'}`);

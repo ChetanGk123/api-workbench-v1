@@ -1,0 +1,42 @@
+{
+  "browser": "chrome",
+  "version": "2.0.0-r8",
+  "bookmarkChars": 495335,
+  "bookmarkSha256": "c0a66bec9b7e3873e4b99d2d52705afac77189ae1953d878141c8a40e2c2837d",
+  "method": "chrome.bookmarks.create on chrome://bookmarks; restart; CDP Page.navigate on /fixture",
+  "cases": [
+    {
+      "chars": 495335,
+      "sha256": "c0a66bec9b7e3873e4b99d2d52705afac77189ae1953d878141c8a40e2c2837d",
+      "browserVersion": "154.0.8037.99",
+      "saved": {
+        "ok": true,
+        "chars": 495335
+      },
+      "afterRestart": {
+        "present": true,
+        "chars": 495335,
+        "exact": true
+      },
+      "launch": {
+        "ok": true,
+        "ms": 30,
+        "stayedOnFixture": true,
+        "showsVersion": true
+      },
+      "policies": {
+        "strict": {
+          "launched": true,
+          "panelBackground": "rgb(9, 9, 11)",
+          "sameOriginFetch": 200
+        },
+        "blocked-connect": {
+          "launched": true,
+          "panelBackground": "rgb(9, 9, 11)",
+          "sameOriginFetch": "rejected TypeError"
+        }
+      }
+    }
+  ],
+  "pass": true
+}

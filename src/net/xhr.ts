@@ -546,6 +546,7 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
         return { text: redactText(new TextDecoder().decode(new TextEncoder().encode(text).subarray(0, CAP.responseBytes)), rct, c, 'Response body'), truncated: true };
       };
       if (!xhr.status) { /* no response */ }
+      else if (!rt.prefs.responseBodies) c.resBody = { omitted: 'Response bodies are off in Settings; the body was not kept' };
       else if (t === '' || t === 'text') c.resBody = cut(xhr.responseText);
       else if (t === 'json') {
         c.resBody = xhr.response == null ? { omitted: 'responseType json: the body did not parse' } : cut(JSON.stringify(xhr.response));

@@ -1,0 +1,43 @@
+{
+  "browser": "Chrome 154.0.8037.99",
+  "fixture": "http://127.0.0.1:4340/fixture",
+  "method": "CUA native Chrome bookmark Edit dialog and actual bookmark folder-menu clicks; application DOM observations",
+  "bookmarkName": "AW R8 release test",
+  "original": {
+    "version": "2.0.0-r8",
+    "chars": 663841,
+    "sha256": "01a3ab6d75f039cc3c2db5e4760e354e01eeb5c1f2d9ae0438fce480ea100735",
+    "editSetFullUrl": true,
+    "menuLaunch": true,
+    "singlePanel": true,
+    "minimizeMenuRelaunch": true,
+    "reloadMenuLaunch": true
+  },
+  "zoom": {
+    "nativePercent": 200,
+    "screens": [
+      "Home",
+      "Settings"
+    ],
+    "closeReachable": true,
+    "resetTo100": true
+  },
+  "longUpdate": {
+    "oldChars": 663882,
+    "newChars": 663894,
+    "check": "newer version verified",
+    "copy": "UI reported copied; old version remained running",
+    "nativePaste": "pasted Bookmark URL AX representation reported 512000 characters; observed clipping origin undetermined",
+    "saveReloadMenuLaunch": "failed",
+    "console": "SyntaxError: Unexpected end of input"
+  },
+  "compact": {
+    "chars": 495335,
+    "sha256": "c0a66bec9b7e3873e4b99d2d52705afac77189ae1953d878141c8a40e2c2837d",
+    "modelRestartLaunch": "PASS, see r8-bookmark-final-chrome.json",
+    "modelCopyUpdateRestart": "PASS, see r8-bookmark-update-chrome.json",
+    "nativePasteUpdate": "NOT RUN to completion; native browser focus changed during the attempted repetition"
+  },
+  "screenshots": "Captured in the task conversation; no standalone native screenshot file retained",
+  "productionBookmarkChanged": false
+}

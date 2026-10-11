@@ -1,6 +1,6 @@
 // Workbench panel following design/reference/screens: title bar, six module tabs, Home cards,
 // rule modules (Mock/Intercept/Route/Chaos), traffic lists, request detail and the minimized launcher.
-import { LIMITS, type Module } from '../net/plan';
+import type { Module } from '../net/plan';
 import type { ReqRecord, Runtime } from '../net/runtime';
 import type { Session } from '../data/store';
 import { h, icon, type IconName } from './dom';
@@ -11,7 +11,7 @@ import { clampPos, GEOMETRY_KEY, MIN_SIZE, readGeometry, writeGeometry, type Pos
 import { checkbox, countBadge, heading, methodBadge, NAME, tile, type Built, type Form, type Kit, type Ret, type Screen } from './kit';
 import { createPausesUi } from './pauses';
 import { createRulesUi, MOD } from './rules';
-import { createSettingsUi } from './settings';
+import { createSettingsUi, UPDATE_KEY } from './settings';
 import { createTestUi } from './test';
 import themeCss from '../../design/reference/aw-theme.css';
 import panelCss from './panel.css';
@@ -380,7 +380,26 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       live?.();
     });
   };
-  const recorder = createRecorder(rt);
+  const prefs = () => session.agg().profile.settings;
+  const shown = (m: Screen) => !(prefs().hidden as string[]).includes(m);
+  const recorder = createRecorder(rt, () => ({ calls: prefs().recorderCalls, recovery: prefs().recorderRecovery }));
+  // Settings that change resources, not just screens: record cap, body reads, recorder.
+  let lastPrefs = '';
+  const applyPrefs = () => {
+    const p = prefs();
+    const sig = JSON.stringify(p);
+    if (sig === lastPrefs) return;
+    const before = lastPrefs ? JSON.parse(lastPrefs) as typeof p : null;
+    lastPrefs = sig;
+    rt.setPrefs({ records: p.activityRecords, responseBodies: p.responseBodies });
+    if (p.hidden.includes('recorder') && recorder.recording()) {
+      recorder.stop();
+      announce(`Recorder hidden in Settings: recording stopped. ${recorder.captures().length} call(s) kept in the draft.`);
+    }
+    if (before && before.recorderRecovery !== p.recorderRecovery) recorder.prefsChanged();
+    for (const [id, { btn }] of tabBtns) btn.hidden = !shown(id);
+    if (!form && !shown(screen)) go('home');
+  };
   const unsubscribe = rt.subscribe(schedule);
   const unsubSession = session.subscribe(schedule);
   const unsubRecorder = recorder.subscribe(schedule);
@@ -501,15 +520,20 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     return { nodes: b.nodes, refresh: () => { c.refresh(); b.refresh?.(); } };
   }
   rulesUi.sync();
+  applyPrefs();
   const unsubRules = session.subscribe(rulesUi.sync);
+  const unsubPrefs = session.subscribe(applyPrefs);
   const endpointsUi = createEndpointsUi(kit);
   const testUi = createTestUi(kit);
   const importUi = createImportUi(kit, recorder, { version: opts.version, onProfileChange: () => testUi.stop() });
   const settingsUi = createSettingsUi(kit, {
     version: opts.version,
+    updateUrl: __UPDATE_URL__,
     onProfileChange: () => testUi.stop(),
-    clearPreferences: () => {
-      try { localStorage.removeItem(GEOMETRY_KEY); } catch { /* storage refused: nothing stored either */ }
+    clearPreferences: async () => {
+      await recorder.reset();
+      rt.clearRecords();
+      try { localStorage.removeItem(GEOMETRY_KEY); localStorage.removeItem(UPDATE_KEY); } catch { /* storage refused: nothing stored either */ }
       delete geo.panel; delete geo.size; delete geo.launcher;
       place();
     },
@@ -583,14 +607,14 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       nodes: [
         h('h2', { class: 'aw-sr', tabindex: '-1', 'data-focus': true }, 'Home'),
         testerCard(),
-        moduleCard('mock'), moduleCard('intercept'), moduleCard('route'), moduleCard('chaos'),
+        ...(['mock', 'intercept', 'route', 'chaos'] as const).filter(shown).map(moduleCard),
         h('div', { class: 'aw-col aw-gap8 aw-mt2' }, h('div', { class: 'aw-cap aw-capl' }, 'Quick actions'),
           h('div', { class: 'aw-g3' }, qa('Endpoints', 'book', 'endpoints'), qa('Import', 'import', 'import'), qa('Settings', 'settings', 'settings'))),
         h('div', { class: 'aw-col aw-gap8 aw-mt2' },
           h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl aw-grow' }, h('span', {}, 'Recent activity '), count), h('span', { class: 'aw-chk' }, followCb, 'Follow newest'), clear),
           h('label', { class: 'aw-sr', for: 'aw-filter' }, 'Filter recent activity'), filterIn,
           t.el),
-        h('p', { class: 'aw-hint aw-wrap' }, `Version ${opts.version} · Frame ${rt.origin} · Current-frame Fetch/XHR after launch only. Rules are saved with the profile; modules start inactive on every launch. The latest ${LIMITS.records} requests are kept.`),
+        h('p', { class: 'aw-hint aw-wrap' }, `Version ${opts.version} · Frame ${rt.origin} · Current-frame Fetch/XHR after launch only. Rules are saved with the profile; modules start inactive on every launch. The latest ${rt.prefs.records} requests are kept (Settings).`),
       ],
       refresh: () => refreshers.forEach((f) => f()),
     };
@@ -608,7 +632,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       if (sig === shown) return; // unchanged: keep any text selection
       shown = sig;
       content.replaceChildren(...(r ? detailBody(r) : [h('div', { class: 'aw-empty aw-wrap' },
-        `Request #${id} is no longer retained. Recent activity keeps the latest ${LIMITS.records} requests, and Clear removes them. Nothing was re-sent.`)]));
+        `Request #${id} is no longer retained. Recent activity keeps the latest ${rt.prefs.records} requests, and Clear removes them. Nothing was re-sent.`)]));
     };
     return {
       nodes: [
@@ -704,6 +728,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       unsubscribe();
       unsubSession();
       unsubRules();
+      unsubPrefs();
       unsubRecorder();
       recorder.dispose();
       ro.disconnect();

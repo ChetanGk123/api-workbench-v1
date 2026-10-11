@@ -20,7 +20,7 @@ const count = (key) => hits.set(key, (hits.get(key) ?? 0) + 1);
 // Banking-style acceptance fixture (R6/G27): synthetic identities, accounts and amounts only.
 // Exact decimal strings; fee 0.50 per transfer; HMAC-SHA-256 request signing with a known test key.
 export const BANK_KEY = 'test-key-123';
-const bankFresh = () => ({ cfg: { ttl: 60_000, refresh: 'ok', pending: 2 }, tokens: new Map(), sessions: new Set(), csrf: randomUUID(), quotes: new Map(), transfers: new Map(), byKey: new Map(), nonces: new Set(), crud: new Map(), seq: 0 });
+const bankFresh = () => ({ cfg: { ttl: 60_000, refresh: 'ok', pending: 2, drop: 0 }, tokens: new Map(), sessions: new Set(), csrf: randomUUID(), quotes: new Map(), transfers: new Map(), byKey: new Map(), nonces: new Set(), crud: new Map(), seq: 0 });
 let bank = bankFresh();
 const cents = (s) => { const [i, f = ''] = String(s).split('.'); return BigInt(i) * 100n + BigInt((f + '00').slice(0, 2)) * (String(s).startsWith('-') ? -1n : 1n); };
 const money = (c) => `${c / 100n}.${String((c < 0n ? -c : c) % 100n).padStart(2, '0')}`;
@@ -71,7 +71,7 @@ function handler(name) {
       return res.end('reset');
     }
     if (path === '/__bank') {
-      for (const k of ['ttl', 'pending']) if (url.searchParams.has(k)) bank.cfg[k] = Number(url.searchParams.get(k));
+      for (const k of ['ttl', 'pending', 'drop']) if (url.searchParams.has(k)) bank.cfg[k] = Number(url.searchParams.get(k));
       if (url.searchParams.has('refresh')) bank.cfg.refresh = url.searchParams.get('refresh');
       if (url.searchParams.has('expire')) for (const t of bank.tokens.keys()) bank.tokens.set(t, 0);
       res.setHeader('content-type', 'application/json');
@@ -94,6 +94,15 @@ function handler(name) {
       const p = normalize(join(root, path));
       if (!p.startsWith(join(root, 'dist'))) return notFound(res);
       return file(res, p, p.endsWith('.json') ? 'application/json' : p.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8');
+    }
+
+    // A stand-in deployment for the data-only update check (G24): files the test writes into
+    // test-results/deploy. /deploy/ is CORS-readable from any origin; /deploy-private/ is not.
+    const dep = /^\/deploy(-private)?\/([\w.-]+)$/.exec(path);
+    if (dep) {
+      count(`deploy:${dep[2]}`);
+      if (!dep[1]) res.setHeader('access-control-allow-origin', '*');
+      return file(res, join(root, 'test-results', 'deploy', dep[2]), dep[2].endsWith('.json') ? 'application/json' : 'text/plain; charset=utf-8');
     }
 
     if (!path.startsWith('/api/')) return notFound(res);
@@ -252,6 +261,8 @@ function bankRoute(req, res, url, path, bytes) {
     count('bank:transfer:logical');
     const out = { id: t.id, status: t.status, amount: t.amount };
     bank.byKey.set(key, out);
+    // Lost response (C07): the write is committed, then the connection drops before any reply.
+    if (bank.cfg.drop) { bank.cfg.drop = 0; count('bank:transfer:dropped'); return req.socket.destroy(); }
     res.statusCode = 202;
     return json(res, out);
   }

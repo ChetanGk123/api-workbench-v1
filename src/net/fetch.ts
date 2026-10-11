@@ -432,6 +432,7 @@ function captureRequest(input: RequestInfo | URL, init: RequestInit | undefined,
   return Promise.resolve();
 }
 
+const OFF = 'Response bodies are off in Settings; the body was not read';
 async function captureResponse(res: Response, rec: ReqRecord, rt: Runtime, reqBody?: Promise<void>): Promise<void> {
   const c = rec.capture!;
   c.status = res.status;
@@ -440,14 +441,20 @@ async function captureResponse(res: Response, rec: ReqRecord, rt: Runtime, reqBo
   const ct = res.headers.get('content-type') ?? '';
   if (res.type === 'opaque' || res.type === 'opaqueredirect') c.resBody = { omitted: 'Opaque response: the browser hides its body' };
   else if (!res.body) c.resBody = { text: '', truncated: false };
+  else if (!rt.prefs.responseBodies) c.resBody = { omitted: OFF };
   else if (!textualType(ct)) c.resBody = { omitted: `Content type "${ct || 'unknown'}" is not text; body not captured` };
   else {
     const release = rt.acquireBodySlot();
     if (!release) c.resBody = { omitted: `${LIMITS.bodyConcurrency} body reads already running; preview skipped` };
     else {
       try {
-        const b = await readPrefix(res.clone().body!, CAP.responseBytes, CAP.responseDeadlineMs, rt.own);
-        c.resBody = 'text' in b ? { text: redactText(b.text, ct, c, 'Response body'), truncated: b.truncated } : b;
+        let disabled = false;
+        const b = await readPrefix(res.clone().body!, CAP.responseBytes, CAP.responseDeadlineMs, (stop) => {
+          const release = rt.own(stop);
+          const unsubscribe = rt.subscribe(() => { if (!rt.prefs.responseBodies) { disabled = true; stop(); } });
+          return () => { release(); unsubscribe(); };
+        });
+        c.resBody = disabled ? { omitted: OFF } : 'text' in b ? { text: redactText(b.text, ct, c, 'Response body'), truncated: b.truncated } : b;
       } catch {
         c.resBody = { omitted: 'Response body was already used' };
       } finally {

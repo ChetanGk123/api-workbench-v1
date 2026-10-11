@@ -1,0 +1,30 @@
+{
+  "browser": "154.0.8037.99",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "baseline": {
+    "JSEventListeners": 15,
+    "Nodes": 156,
+    "JSHeapUsedSize": 1235948
+  },
+  "retained": {
+    "JSEventListeners": 66,
+    "Nodes": 482,
+    "JSHeapUsedSize": 3864444
+  },
+  "closed": {
+    "JSEventListeners": 71,
+    "Nodes": 1198,
+    "JSHeapUsedSize": 4339564
+  },
+  "nativeBurstMs": 9.200000047683716,
+  "hookedBurstMs": 34,
+  "burstCalls": 60,
+  "concurrency": 10,
+  "callsAtByteCap": 22,
+  "idleMs": 1000,
+  "idleRequests": [],
+  "limitation": "One empirical forced-GC observation; not a proof of no stream-buffer leak or a long-idle benchmark."
+}

@@ -60,6 +60,25 @@ async function run(n) {
       } catch (e) {
         c.launch = { ok: false, error: err(e) };
       }
+      // G25: the same saved URL on the exact policy pages (real size only), via the same navigation path.
+      if (n === real.length) {
+        c.policies = {};
+        for (const name of ['strict', 'blocked-connect']) {
+          const p = await ctx.newPage();
+          await p.goto(`${A}/policy/${name}`);
+          try {
+            await (await ctx.newCDPSession(p)).send('Page.navigate', { url: saved });
+            const panel = p.locator('[data-api-workbench]');
+            await panel.waitFor({ timeout: 5000 });
+            const bg = await panel.evaluate((el) => getComputedStyle(el.shadowRoot.querySelector('.aw-panel')).backgroundColor);
+            const sameOrigin = await p.evaluate(() => fetch('/api/echo').then((r) => r.status, (e) => `rejected ${e.name}`));
+            c.policies[name] = { launched: true, panelBackground: bg, sameOriginFetch: sameOrigin };
+          } catch (e) {
+            c.policies[name] = { launched: false, error: err(e) };
+          }
+          await p.close();
+        }
+      }
     }
     await ctx.close();
   } catch (e) {
@@ -73,6 +92,9 @@ async function run(n) {
 
 const result = { browser: channel, version, bookmarkChars: real.length, bookmarkSha256: sha(real), method: 'chrome.bookmarks.create on chrome://bookmarks; restart; CDP Page.navigate on /fixture', cases: [] };
 for (const n of sizes) result.cases.push(await run(n));
+const actual = result.cases.find((c) => c.chars === real.length);
+result.pass = !!(actual?.saved?.ok && actual.afterRestart?.exact && actual.launch?.ok);
+if (!result.pass) process.exitCode = 1; // padded boundary failures are evidence; a broken real artifact fails the command
 const text = JSON.stringify(result, null, 2);
 if (out) writeFileSync(out, text + '\n');
 else console.log(text);

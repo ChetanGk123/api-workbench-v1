@@ -244,7 +244,25 @@ export interface Profile {
   environments: Record<string, Record<string, string>>;
   activeEnvironment: string;
   globalHeaders: Header[];
-  settings: { bodyCheckKb: number };
+  settings: Settings;
+}
+
+/** Modules a profile can hide. Hidden = no tab or card, and no effect on traffic (R8). */
+export const HIDEABLE = ['mock', 'intercept', 'route', 'chaos', 'recorder'] as const;
+export type Hideable = (typeof HIDEABLE)[number];
+export interface Settings {
+  bodyCheckKb: number;
+  hidden: Hideable[];
+  /** Request records kept in Recent activity and the module lists. */
+  activityRecords: number;
+  /** Recorder call limit per draft. */
+  recorderCalls: number;
+  /** Recorder reads a bounded response preview; off = metadata only, no body read. */
+  responseBodies: boolean;
+  /** Recorder keeps a recovery copy in this origin's storage. */
+  recorderRecovery: boolean;
+  /** Global roots offered by Auth & context → Find values; scanned only when the user asks. */
+  contextRoots: string[];
 }
 
 /** One profile and everything it owns: the unit of a storage transaction and of a profile export. */
@@ -271,6 +289,9 @@ export const BOUNDS = {
   bodyBytes: 1024 * 1024,
   sampleBytes: 16 * 1024,
   bodyCheckKb: { min: 1, max: 10240, default: 1024 },
+  activityRecords: { min: 50, max: 500, default: 500 },
+  recorderCalls: { min: 10, max: 1000, default: 100 },
+  contextRoots: 20,
   iterations: 1000,
   concurrency: 20,
   delayMs: 60_000,
@@ -672,7 +693,37 @@ function profile(v: V, x: unknown, p: string): Profile {
     environments,
     activeEnvironment,
     globalHeaders: headers(v, o.globalHeaders, `${p}.globalHeaders`, false),
-    settings: { bodyCheckKb: v.int(s, 'bodyCheckKb', `${p}.settings`, BOUNDS.bodyCheckKb.min, BOUNDS.bodyCheckKb.max) },
+    settings: settings(v, s, `${p}.settings`),
+  };
+}
+
+export const defaultSettings = (): Settings => ({
+  bodyCheckKb: BOUNDS.bodyCheckKb.default, hidden: [], activityRecords: BOUNDS.activityRecords.default,
+  recorderCalls: BOUNDS.recorderCalls.default, responseBodies: true, recorderRecovery: true, contextRoots: [],
+});
+const ROOT_NAME = /^[A-Za-z_$][\w$]*$/;
+/** Fields added in R8 default when absent, so earlier schema 2 data still loads. */
+function settings(v: V, s: Obj, p: string): Settings {
+  const d = defaultSettings();
+  const has = (k: string) => s[k] !== undefined;
+  const hidden = has('hidden') ? v.arr(s.hidden, `${p}.hidden`, HIDEABLE.length).filter((m, i): m is Hideable => {
+    if ((HIDEABLE as readonly unknown[]).includes(m)) return true;
+    v.err(`${p}.hidden.${i}`, `Expected one of ${HIDEABLE.join(', ')}`);
+    return false;
+  }) : d.hidden;
+  const contextRoots = has('contextRoots') ? v.arr(s.contextRoots, `${p}.contextRoots`, BOUNDS.contextRoots).filter((r, i): r is string => {
+    if (typeof r === 'string' && ROOT_NAME.test(r) && r.length <= 64) return true;
+    v.err(`${p}.contextRoots.${i}`, 'Expected a global name such as appConfig');
+    return false;
+  }) : d.contextRoots;
+  return {
+    bodyCheckKb: v.int(s, 'bodyCheckKb', p, BOUNDS.bodyCheckKb.min, BOUNDS.bodyCheckKb.max),
+    hidden: [...new Set(hidden)],
+    activityRecords: has('activityRecords') ? v.int(s, 'activityRecords', p, BOUNDS.activityRecords.min, BOUNDS.activityRecords.max) : d.activityRecords,
+    recorderCalls: has('recorderCalls') ? v.int(s, 'recorderCalls', p, BOUNDS.recorderCalls.min, BOUNDS.recorderCalls.max) : d.recorderCalls,
+    responseBodies: has('responseBodies') ? v.bool(s, 'responseBodies', p) : d.responseBodies,
+    recorderRecovery: has('recorderRecovery') ? v.bool(s, 'recorderRecovery', p) : d.recorderRecovery,
+    contextRoots: [...new Set(contextRoots)],
   };
 }
 
@@ -966,7 +1017,8 @@ export function rulesFromV1(legacy: unknown[], endpointIds: Set<string>): { rule
       ...(typeof r.endpointId === 'string' && endpointIds.has(r.endpointId) && { endpointId: r.endpointId }),
     };
     let out: unknown;
-    if (r.kind === 'mock') out = { ...base, kind: 'mock', mode: r.mode, exhaustion: r.exhaustion, slots: arrOf(r.slots).map((s) => ({ id: newId('slot'), status: s.status, headers: lines(s.headers), body: s.body ?? '', delayMs: s.delayMs ?? 0, fault: s.fault ?? 'none' })) };
+    // A static reply repeats by definition, so an absent exhaustion is that; a sequence's is not inferred.
+    if (r.kind === 'mock') out = { ...base, kind: 'mock', mode: r.mode, exhaustion: r.exhaustion ?? (r.mode === 'static' ? 'repeat-last' : undefined), slots: arrOf(r.slots).map((s) => ({ id: newId('slot'), status: s.status, headers: lines(s.headers), body: s.body ?? '', delayMs: s.delayMs ?? 0, fault: s.fault ?? 'none' })) };
     else if (r.kind === 'intercept') out = { ...base, kind: 'intercept', request: xform(r.request), response: xform(r.response), breakRequest: r.breakRequest === true, breakResponse: r.breakResponse === true };
     else if (r.kind === 'route') {
       const mo = typeof r.matchOrigin === 'string' && r.matchOrigin ? r.matchOrigin : origin;
@@ -1076,7 +1128,7 @@ export function defaultProfile(name = 'Default'): Aggregate {
     profile: {
       id: newId('profile'), name, createdAt: now, updatedAt: now,
       environments: { default: { default: '' } }, activeEnvironment: 'default',
-      globalHeaders: [], settings: { bodyCheckKb: BOUNDS.bodyCheckKb.default },
+      globalHeaders: [], settings: defaultSettings(),
     },
     endpoints: [], plans: [], authContexts: [], signingRecipes: [], bindings: [], rules: [], legacyRules: [],
   };

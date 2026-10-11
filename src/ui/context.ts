@@ -19,10 +19,13 @@ export function createContextUi(kit: Kit, auth: AuthCoordinator) {
   let scan: { candidates: Candidate[]; errors: string[]; truncated: string[] } | null = null;
   let scanNo = 0;
   const cats = new Set<Category>(['cookie', 'meta']);
-  let roots = '';
+  /** null = the profile's configured roots (Settings → Context roots). */
+  let roots: string | null = null;
+  const rootsNow = () => roots ?? s.agg().profile.settings.contextRoots.join(', ');
 
   function open(ret: Ret) {
     const agg = s.agg();
+    if (roots === null && agg.profile.settings.contextRoots.length) cats.add('global'); // configured roots are offered, still not scanned
     const draft = { authContexts: structuredClone(agg.authContexts), signingRecipes: structuredClone(agg.signingRecipes), bindings: structuredClone(agg.bindings) };
     const components = new Map(draft.signingRecipes.map((r) => [r.id, r.components.join(', ')]));
     const base = JSON.stringify(draft);
@@ -90,14 +93,14 @@ export function createContextUi(kit: Kit, auth: AuthCoordinator) {
           }, 'aw-btn aw-gh aw-sm', { 'aria-label': `Use ${c.label} as binding` }) : h('span', { class: 'aw-hint' }, 'discovery only')))),
       ]));
       drawScan();
-      const rootsIn = input(roots, (v) => { roots = v; }, { label: 'Global roots', placeholder: 'e.g. appConfig, __STATE__', mono: true });
+      const rootsIn = input(rootsNow(), (v) => { roots = v; }, { label: 'Global roots', placeholder: 'e.g. appConfig, __STATE__', mono: true });
       const scanCtl = h('div', { class: 'aw-col aw-gap6' },
         h('div', { class: 'aw-row aw-gap8 aw-wrapbtns' }, ...CATS.map(([c, label]) => h('span', { class: 'aw-chk aw-xs' }, checkbox(label, cats.has(c), (v) => { if (v) cats.add(c); else cats.delete(c); scan = null; drawScan(); }), label))),
         rootsIn,
         h('div', { class: 'aw-row aw-gap6' },
           btn('Scan page', () => {
             const n = ++scanNo;
-            const r = scanPage(cats, roots.split(',').map((x) => x.trim()).filter(Boolean));
+            const r = scanPage(cats, rootsNow().split(',').map((x) => x.trim()).filter(Boolean));
             if (n !== scanNo) return; // a newer scan or a Clear won
             scan = r;
             drawScan();

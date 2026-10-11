@@ -1,0 +1,37 @@
+{
+  "browser": "chrome",
+  "method": "chrome.bookmarks on chrome://bookmarks (create, update); restart; CDP Page.navigate to the saved URL on /fixture; panel UI for Check/Copy; real clipboard",
+  "old": {
+    "version": "2.0.0-r8",
+    "chars": 495364,
+    "sha256": "b5cc063d0eec7d7d86cd8ca05b26577abe14c3e7d122bd968a3908ec75a8f5da"
+  },
+  "published": {
+    "version": "2.0.0-r8.1",
+    "chars": 495376,
+    "sha256": "625780bb74072f12d33b553d95ec82eb18d88f98121ed63432f65788025c1b5b"
+  },
+  "steps": {
+    "saved": 495364,
+    "launchOld": {
+      "savedExact": true,
+      "running": "2.0.0-r8"
+    },
+    "check": {
+      "outcome": "Copied 2.0.0-r8.1 to the clipboard. Not installed yet: replace the saved bookmark's URL with it, then reload and click the bookmark.",
+      "clipboardExact": true,
+      "stillRunning": "2.0.0-r8",
+      "reads": {
+        "manifest": 1,
+        "bookmark": 1
+      }
+    },
+    "replaced": 495376,
+    "launchNew": {
+      "savedExact": true,
+      "running": "2.0.0-r8.1"
+    }
+  },
+  "browserVersion": "154.0.8037.99",
+  "pass": true
+}

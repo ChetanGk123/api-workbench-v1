@@ -14,7 +14,7 @@ No hosted script loader, runtime dependencies, universal bookmark-size claim, au
 
 ## Task S01.1 — Build the self-contained guide and installer
 
-**Suggested model:** GPT-6 Luna. **Effort:** medium. **Why:** bounded static layout/content once build contract exists. **Status:** NOT STARTED. **Depends on:** R0 generated artifact/encoding.
+**Suggested model:** GPT-6 Luna. **Effort:** medium. **Why:** bounded static layout/content once build contract exists. **Status:** IMPLEMENTED; Chrome artifact/layout/clipboard checks pass ([R8 evidence](../R8_REPORT.md)); Edge and human acceptance remain open. **Depends on:** R0 generated artifact/encoding.
 
 1. Reuse existing build/showcase generation and zinc assets; render version/size from build metadata, not manually typed constants.
 2. Place one primary install link with full encoded payload and explicit drag instructions. Offer a separate complete bookmark-text/manual path.
@@ -26,7 +26,7 @@ No hosted script loader, runtime dependencies, universal bookmark-size claim, au
 
 ## Task S01.2 — Verify saved bookmark installation and persistence
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** browser UI evidence differs from injection tests. **Status:** NOT STARTED. **Depends on:** S01.1 and R0 transport.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** browser UI evidence differs from injection tests. **Status:** PARTIAL: actual Chrome URL Edit/menu launch/relaunch/reload and model restart/size/policy checks pass; drag, native UI restart and Edge remain open ([R8 evidence](../R8_REPORT.md)). **Depends on:** S01.1 and R0 transport.
 
 1. Follow the exact VERIFICATION saved-bookmark procedure on the generated candidate, recording drag vs paste path.
 2. Navigate away from installer to fixture and click actual saved bookmark; record version/URL retention, double launch, reload and browser restart.
@@ -37,7 +37,7 @@ No hosted script loader, runtime dependencies, universal bookmark-size claim, au
 
 ## Task S01.3 — Document and verify the manual update journey
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** artifact/version consistency and clipboard/browser-policy failures. **Status:** NOT STARTED. **Depends on:** S18.3 and release deployment artifacts.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** artifact/version consistency and clipboard/browser-policy failures. **Status:** IMPLEMENTED for check/copy and documented replacement; Chrome model/clipboard/restart passes, native Edit-dialog update and Edge remain open ([R8 evidence](../R8_REPORT.md)). **Depends on:** S18.3 and release deployment artifacts.
 
 1. Publish version metadata and full bookmark text together; verify matching version/hash.
 2. Keep the current bookmark running during Check/Copy. Copy new text only after validation; do not execute it.

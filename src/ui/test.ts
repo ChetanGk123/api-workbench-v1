@@ -88,6 +88,24 @@ export function createTestUi(kit: Kit) {
     selectedRun = null;
   }
 
+  /** C08: a rule that changed or answered a signed request after signing is named, never silent. */
+  function signedAfter(id: number): string[] {
+    const rec = kit.rt.records().find((r) => r.id === id);
+    if (!rec) return [];
+    const out: string[] = [];
+    for (const o of rec.ops) {
+      if (o.state !== 'applied') continue;
+      const who = o.rule ? `${o.module} rule ${o.rule}` : o.module;
+      if (o.module === 'intercept' && (o.part === 'request' || o.part === 'request-pause'))
+        out.push(`Signed content changed after signing by ${who}: the server sees a signature that does not cover what was sent (intentional invalid-signature test)`);
+      else if (o.module === 'route')
+        out.push(`Routed after signing by ${who} to ${rec.finalUrl ?? 'another destination'}: the signature was prepared for the original destination, not re-signed for this one`);
+      else if (o.module === 'mock' || (o.module === 'chaos' && rec.provider === 'chaos'))
+        out.push(`Answered by ${who} without reaching the server: the signature was not verified`);
+    }
+    return out;
+  }
+
   /** Explicit refresh before dispatch, signing per attempt, one configured read-only retry after 401. */
   async function transmit(agg: ReturnType<typeof s.agg>, ep: Endpoint, use: Map<string, unknown>, signal: AbortSignal, notes: string[]): Promise<{ p: Prepared; res: OnceResult | null }> {
     const build = () => prepare(agg, ep, kit.rt.origin, pageSources(), files, { ...prepOpts(), reserved: use });
@@ -108,7 +126,9 @@ export function createTestUi(kit: Kit) {
         q = { ...q, headers: (await signPrepared(q, key, Date.now(), crypto.randomUUID())).headers };
         notes.push('Signed at dispatch with a fresh timestamp and nonce');
       }
-      return { p: q, res: await send(q, mode === 'direct' ? kit.fetchers.direct : kit.fetchers.rules, signal, agg.profile.settings.bodyCheckKb * 1024) };
+      const res = await send(q, mode === 'direct' ? kit.fetchers.direct : kit.fetchers.rules, signal, agg.profile.settings.bodyCheckKb * 1024);
+      if (q.signing && res.recordId) notes.push(...signedAfter(res.recordId));
+      return { p: q, res };
     };
     const first = await go(p);
     if (first.res?.status === 401 && ctx?.refresh?.readOnlyRetry && (ep.request.method === 'GET' || ep.request.method === 'HEAD') && !signal.aborted) {

@@ -1,6 +1,6 @@
 # Complex applications and banking-style acceptance
 
-Status: required rebuild target, clarified by the user on 10 October 2026. **Design and acceptance specification, not a claim of tested banking compatibility.** R6 adds the simulated banking fixture and a Chrome-only subset of G27; several rows remain partial or NOT RUN ([R6 evidence](R6_REPORT.md)).
+Status: required rebuild target, clarified by the user on 10 October 2026. **Design and acceptance specification, not a claim of tested banking compatibility.** R6 adds the simulated banking fixture; R8 adds Chrome concurrency/signing/failure/uncertain-write/routing/receipt assertions ([R8 evidence](R8_REPORT.md)). Edge and full boundary/resource acceptance remain NOT RUN.
 
 API Workbench must be useful on complex applications, including banking applications being developed. A small echo fixture proves individual mechanics; it does not prove that the tool handles an authenticated, stateful application. This contract adds a representative complex-app release gate without changing the full-inline bookmarklet distribution.
 
@@ -86,7 +86,7 @@ This is the reference journey for the tool, not a prescribed architecture for ev
 
 ## G27 release scenario matrix
 
-Every row requires Chrome and Edge evidence using the bundled tool UI and fixture server assertions. All start NOT RUN.
+Every row requires Chrome and Edge evidence using the bundled tool UI and fixture server assertions. Current Chrome coverage and remaining gaps are recorded in [R8_REPORT](R8_REPORT.md); every Edge row remains NOT RUN.
 
 | Scenario | Assertions |
 | --- | --- |
