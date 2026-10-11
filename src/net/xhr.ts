@@ -7,12 +7,12 @@
 //   typed response. (Chrome runs target listeners in registration order, so native events on the
 //   page's own object cannot be held back.)
 // - Mock and synthetic chaos use an explicit state/event machine and send nothing.
-import { utf8Bytes, type Pair, type Transform } from '../data/schema';
+import { utf8Bytes, type InterceptRule, type Pair, type Transform } from '../data/schema';
 import { CAP, cleanHeaders, headerLines, newCapture, redactText, requestBody, sensitiveName, type ResBody } from './capture';
 import { jsonOrText, matchBody, statusText } from './fetch';
 import { applyPatch, hasBodyOps, hasHeaderOps, transformBody } from './patch';
 import { BODYLESS_STATUS, LIMITS, planRequest, type Plan } from './plan';
-import type { ReqRecord, Runtime } from './runtime';
+import type { PauseView, ReqRecord, Runtime } from './runtime';
 
 type Proto = typeof XMLHttpRequest.prototype;
 export interface XhrNatives {
@@ -44,6 +44,8 @@ interface Synthetic {
   done: boolean;
   /** Internal native request in flight (held), aborted with the page's abort(). */
   inner: XMLHttpRequest | null;
+  /** Aborted by the page's abort()/timeout so a waiting breakpoint settles as cancelled. */
+  pauseCtl: AbortController;
   timers: ReturnType<typeof setTimeout>[];
   release(): void;
 }
@@ -116,6 +118,7 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
     const syn = st?.synthetic;
     if (!rt.inert && syn && !syn.done) {
       cancel(syn);
+      syn.pauseCtl.abort(new DOMException('XHR aborted', 'AbortError')); // caller abort wins over a pause
       syn.done = true; // before the native abort, whose (suppressed) loadend reports back synchronously
       if (syn.inner) n.abort.call(syn.inner); // stop the internal request; the page sees only our abort
       terminal(this, syn, 'abort');
@@ -143,7 +146,7 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
     let sendBody = body;
     const ic = plan.intercept?.request ? plan.intercept.rule.request : null;
     const chaos = plan.chaos;
-    const hold = !!plan.intercept?.response || (!!chaos && chaos.fault.kind !== 'replay');
+    const hold = !!plan.intercept?.response || !!plan.intercept?.breakRequest || !!plan.intercept?.breakResponse || (!!chaos && chaos.fault.kind !== 'replay');
     const target = plan.route?.to.href ?? st.url.href;
 
     // Effective headers: route Authorization policy, then request edits (removal before set).
@@ -201,13 +204,8 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
 
     // Held: the real request runs on an internal native XHR; the page's object never sends, so the
     // page sees one event sequence with the final values. Upload progress is not forwarded.
+    // A request breakpoint holds here before the internal request is even opened: zero upstream hits.
     const inner = new XMLHttpRequest();
-    const a = [st.method, target, true, ...st.openArgs.slice(3)];
-    (n.open as (...x: unknown[]) => void).apply(inner, a);
-    for (const [k, v] of headers) n.setRequestHeader.call(inner, k, v);
-    inner.responseType = xhr.responseType;
-    inner.withCredentials = withCredentials;
-    inner.timeout = xhr.timeout;
     const syn = newSynthetic(inner);
     st.synthetic = syn;
     shadow(xhr, syn);
@@ -215,14 +213,35 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
     for (const t of ['load', 'error', 'abort', 'timeout']) inner.addEventListener(t, () => { last = t; });
     inner.addEventListener('loadend', () => finishHeld(xhr, inner, st, plan, rec, syn, last));
     fireProgress(xhr, 'loadstart', 0);
-    const go = () => {
+    const ic2 = plan.intercept;
+    const breaks = !!(ic2?.breakRequest || ic2?.breakResponse);
+    const sentAt = performance.now();
+    if (breaks && xhr.timeout > 0) {
+      // The page's own timeout keeps running while Workbench holds the request or response; it wins.
+      syn.timers.push(setTimeout(() => {
+        if (syn.done) return;
+        syn.pauseCtl.abort(new DOMException('XHR timeout', 'TimeoutError'));
+        const i = syn.inner;
+        terminal(xhr, syn, 'timeout');
+        if (i) n.abort.call(i);
+        rt.finish(rec, 'timeout');
+      }, xhr.timeout));
+    }
+    let url = target, hdrs = headers, out: unknown = sendBody;
+    const go = (deferred: boolean) => {
       if (syn.done) return;
+      (n.open as (...x: unknown[]) => void).apply(inner, [st.method, url, true, ...st.openArgs.slice(3)]);
+      for (const [k, v] of hdrs) n.setRequestHeader.call(inner, k, v);
+      inner.responseType = xhr.responseType;
+      inner.withCredentials = withCredentials;
+      if (xhr.timeout > 0) inner.timeout = Math.max(1, Math.round(xhr.timeout - (performance.now() - sentAt)));
       try {
-        (n.send as (b: unknown) => void).call(inner, sendBody ?? null);
+        (n.send as (b: unknown) => void).call(inner, out ?? null);
       } catch (e) {
-        syn.done = true;
+        if (!deferred) { syn.done = true; rt.finish(rec, 'error'); throw e; }
+        terminal(xhr, syn, 'error');
         rt.finish(rec, 'error');
-        throw e;
+        return;
       }
       if (chaos?.fault.kind === 'timeout') {
         const ms = chaos.fault.timeoutMs;
@@ -234,10 +253,32 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
         }, ms));
       }
     };
-    const pre = chaos?.rule.preDelayMs ?? 0;
-    if (!pre) return go();
-    syn.timers.push(setTimeout(go, pre));
-    syn.release = rt.own(() => { cancel(syn); go(); }); // Close: send now, still exactly once
+    const dispatch = (deferred: boolean) => {
+      const pre = chaos?.rule.preDelayMs ?? 0;
+      if (!pre || rt.inert) return go(deferred);
+      syn.timers.push(setTimeout(() => go(true), pre));
+      syn.release = rt.own(() => { cancel(syn); go(true); }); // Close: send now, still exactly once
+    };
+    if (!ic2?.breakRequest) return dispatch(false);
+    const view: PauseView = {
+      url, headers: hdrs,
+      body: out == null ? { text: '' } : typeof out === 'string' ? { text: out } : { reason: `${Object.prototype.toString.call(out).slice(8, -1)} body: not editable as text; it is sent as is` },
+    };
+    if (st.method === 'GET' || st.method === 'HEAD') view.body = { reason: `${st.method} requests have no body` };
+    rt.pause(rec, 'request', ic2.rule, view, syn.pauseCtl.signal).then((d) => {
+      if (syn.done) return;
+      if (d.kind === 'abort') {
+        terminal(xhr, syn, 'abort');
+        syn.readyState = 0;
+        return rt.finish(rec, 'aborted');
+      }
+      if (d.kind === 'continue') {
+        url = d.edit.url ?? url;
+        hdrs = d.edit.headers;
+        if ('text' in d.edit.body && 'text' in view.body && d.edit.body.text !== view.body.text) out = d.edit.body.text;
+      }
+      dispatch(true);
+    }, () => { /* the page aborted or timed out: already settled */ });
   }
 
   /** The internal request completed (or failed): apply response work and real chaos, then deliver once. */
@@ -262,45 +303,75 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
     const bodyText = textual || (type === 'json' && raw != null) ? reply.text : null;
     if (plan.intercept?.response) reply = editReply(reply, plan.intercept.rule.response, bodyText === null ? `XHR ${type || 'text'} response cannot be edited as text; native typed response kept` : '', type, rec);
 
+    const brk = plan.intercept?.breakResponse ? plan.intercept.rule : null;
+    const out = (r: Reply) => (brk ? pauseReply(xhr, syn, r, rec, brk, st.method) : deliver(xhr, syn, r, rec));
     const chaos = plan.chaos;
-    if (!chaos) return deliver(xhr, syn, reply, rec);
+    if (!chaos) return out(reply);
     const f = chaos.fault;
     const sent = `upstream returned ${reply.status}`;
     switch (f.kind) {
       case 'latency': case 'random-latency':
         rt.op(rec, 'chaos', 'applied', `Delivery delayed ${chaos.delayMs} ms after the real response (${sent})`);
-        syn.timers.push(setTimeout(() => deliver(xhr, syn, reply, rec), chaos.delayMs));
+        syn.timers.push(setTimeout(() => out(reply), chaos.delayMs));
         syn.release = rt.own(() => deliver(xhr, syn, reply, rec)); // Close delivers the real reply now
         return;
       case 'status':
         rt.op(rec, 'chaos', 'applied', `Real response replaced by HTTP ${f.status} (${sent}; upstream effects stand)`);
-        return deliver(xhr, syn, textReply(f.status, f.body ? [['content-type', jsonOrText(f.body)]] : [], f.body, st.method, type, reply.url), rec);
+        return out(textReply(f.status, f.body ? [['content-type', jsonOrText(f.body)]] : [], f.body, st.method, type, reply.url));
       case 'network-error':
         rt.op(rec, 'chaos', 'applied', `Response dropped: network error (${sent}; upstream effects stand)`);
         terminal(xhr, syn, 'error');
         return rt.finish(rec, 'error');
       case 'timeout':
         rt.op(rec, 'chaos', 'skipped', `Response arrived within ${f.timeoutMs} ms; delivered`);
-        return deliver(xhr, syn, reply, rec);
+        return out(reply);
       case 'malformed-json':
-        if (!textual && type !== 'json') { rt.op(rec, 'chaos', 'skipped', `XHR ${type} response is not text; native typed response delivered`); return deliver(xhr, syn, reply, rec); }
+        if (!textual && type !== 'json') { rt.op(rec, 'chaos', 'skipped', `XHR ${type} response is not text; native typed response delivered`); return out(reply); }
         rt.op(rec, 'chaos', 'applied', `Body replaced with malformed JSON (${sent})`);
-        return deliver(xhr, syn, { ...reply, text: f.text, response: type === 'json' ? null : f.text }, rec);
+        return out({ ...reply, text: f.text, response: type === 'json' ? null : f.text });
       case 'corrupt-json': {
         let parsed: unknown;
         if (bodyText !== null) { try { parsed = JSON.parse(reply.text); } catch { /* reported below */ } }
         const p = parsed === undefined ? null : applyPatch(parsed, f.patch);
         if (!p?.ok) {
           rt.op(rec, 'chaos', 'skipped', `${bodyText === null ? `XHR ${type} response is not text` : parsed === undefined ? 'body is not valid JSON' : `field change ${p!.index + 1} failed (${p!.reason})`}; original response delivered`);
-          return deliver(xhr, syn, reply, rec);
+          return out(reply);
         }
         const text = JSON.stringify(p.value);
         rt.op(rec, 'chaos', 'applied', `${f.patch.length} JSON field change${f.patch.length > 1 ? 's' : ''} applied (${sent})`);
-        return deliver(xhr, syn, { ...reply, text, response: type === 'json' ? p.value : text }, rec);
+        return out({ ...reply, text, response: type === 'json' ? p.value : text });
       }
       case 'replay':
-        return deliver(xhr, syn, reply, rec);
+        return out(reply);
     }
+  }
+
+  /** Final hold before delivery: the server has already acted on the request. */
+  function pauseReply(xhr: XMLHttpRequest, syn: Synthetic, r: Reply, rec: ReqRecord, rule: InterceptRule, method: string) {
+    const type = xhr.responseType;
+    const textual = type === '' || type === 'text' || type === 'json';
+    const view: PauseView = {
+      status: r.status, headers: r.headers,
+      body: method === 'HEAD' || BODYLESS_STATUS.has(r.status) ? { reason: `No body (${method === 'HEAD' ? 'HEAD' : `HTTP ${r.status}`})` }
+        : textual ? { text: r.text } : { reason: `XHR ${type} response: shown as metadata only; the native typed body is delivered unchanged` },
+    };
+    rt.pause(rec, 'response', rule, view, syn.pauseCtl.signal).then((d) => {
+      if (syn.done) return;
+      if (d.kind === 'abort') {
+        terminal(xhr, syn, 'abort');
+        syn.readyState = 0;
+        return rt.finish(rec, 'aborted');
+      }
+      if (d.kind === 'original') return deliver(xhr, syn, r, rec);
+      const e = d.edit;
+      const next: Reply = { ...r, headers: e.headers, status: e.status ?? r.status };
+      if (next.status !== r.status) next.statusText = statusText(next.status);
+      if ('text' in e.body && 'text' in view.body && e.body.text !== view.body.text) {
+        next.text = e.body.text;
+        next.response = type === 'json' ? safeParse(e.body.text) : e.body.text;
+      }
+      deliver(xhr, syn, next, rec);
+    }, () => { /* the page aborted or timed out: already settled */ });
   }
 
   /** Response transform over a reply. `cannotEditBody` names why body ops are skipped ('' = eligible). */
@@ -489,7 +560,7 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
 }
 
 function newSynthetic(inner: XMLHttpRequest | null): Synthetic {
-  return { readyState: 1, status: 0, statusText: '', headers: '', body: '', response: null, url: '', done: false, inner, timers: [], release: () => {} };
+  return { readyState: 1, status: 0, statusText: '', headers: '', body: '', response: null, url: '', done: false, inner, pauseCtl: new AbortController(), timers: [], release: () => {} };
 }
 
 function cancel(syn: Synthetic) {

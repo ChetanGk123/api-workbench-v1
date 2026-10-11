@@ -5,7 +5,7 @@ import { utf8Bytes, type Credentials, type Pair, type Transform } from '../data/
 import { CAP, cleanHeaders, newCapture, readPrefix, redactText, requestBody, sensitiveName, textualType } from './capture';
 import { applyPatch, editHeaders, hasBodyOps, hasHeaderOps, transformBody } from './patch';
 import { BODYLESS_STATUS, LIMITS, planRequest, type Intake, type Plan } from './plan';
-import { readBounded, type ReqRecord, type Runtime } from './runtime';
+import { readBounded, sameHeaders, type PauseView, type ReqRecord, type Runtime } from './runtime';
 
 const TEXTUAL = /^(text\/|application\/(json|xml|javascript|x-www-form-urlencoded)\b|[^;]*\+(json|xml)\b)/i;
 const STATUS_TEXT: Record<number, string> = { 200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content', 304: 'Not Modified', 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 409: 'Conflict', 422: 'Unprocessable Content', 429: 'Too Many Requests', 500: 'Internal Server Error', 502: 'Bad Gateway', 503: 'Service Unavailable', 504: 'Gateway Timeout' };
@@ -70,8 +70,16 @@ async function run(nativeFetch: typeof fetch, self: unknown, input: RequestInfo 
   if (plan.provider === 'mock') return mockResponse(plan, method, signal, rec, rt);
 
   const chaos = plan.chaos;
+  const ic = plan.intercept;
+  const changes = !!(plan.route || ic?.request || chaos?.fault.kind === 'replay');
+  let prepared = changes || ic?.breakRequest ? await prepare(input, init, plan, rec, rt) : null;
+  if (ic?.breakRequest) {
+    const d = await requestPause(prepared, input, init, method, signal, plan, rec, rt);
+    if (d === 'abort') throw new DOMException('Workbench breakpoint: request aborted before it was sent', 'AbortError');
+    if (d !== 'keep') prepared = d;
+    else if (!changes) prepared = null; // unchanged: the caller's own arguments, exactly as given
+  }
   if (chaos?.rule.preDelayMs) await rt.wait(chaos.rule.preDelayMs, signal);
-  const prepared = plan.route || plan.intercept?.request || chaos?.fault.kind === 'replay' ? await prepare(input, init, plan, rec, rt) : null;
   const target = prepared?.url ?? input;
   const dispatched = nativeFetch.call(self, target, prepared?.init ?? init);
   if (chaos?.fault.kind === 'replay') replay(nativeFetch, prepared, chaos.fault, signal, rec, rt);
@@ -84,8 +92,65 @@ async function run(nativeFetch: typeof fetch, self: unknown, input: RequestInfo 
       throw timeoutError(ms);
     })]);
   } else res = await dispatched;
-  if (plan.intercept?.response) res = await transformResponse(res, plan.intercept.rule.response, method, rec, rt);
-  return chaos ? realChaos(res, plan, method, signal, rec, rt) : res;
+  if (ic?.response) res = await transformResponse(res, ic.rule.response, method, rec, rt);
+  if (chaos) res = await realChaos(res, plan, method, signal, rec, rt);
+  return ic?.breakResponse ? responsePause(res, method, signal, plan, rec, rt) : res;
+}
+
+// ---------- breakpoints (pause registry in runtime)
+
+/** Hold the effective request before dispatch. 'keep' = send as prepared; a Prepared = send the edit. */
+async function requestPause(prepared: Prepared | null, input: RequestInfo | URL, init: RequestInit | undefined, method: string, signal: AbortSignal | null | undefined, plan: Plan, rec: ReqRecord, rt: Runtime): Promise<Prepared | 'keep' | 'abort'> {
+  let view: PauseView;
+  if (prepared) {
+    const b = prepared.init.body;
+    const ct = new Headers(prepared.init.headers).get('content-type') ?? '';
+    view = {
+      url: prepared.url,
+      headers: [...new Headers(prepared.init.headers)],
+      body: b == null ? { text: '' } : typeof b === 'string' ? { text: b }
+        : b instanceof Uint8Array && textualType(ct) && b.byteLength <= LIMITS.bodyBytes ? { text: new TextDecoder().decode(b) }
+        : { reason: `${Object.prototype.toString.call(b).slice(8, -1)} body: not editable as text; it is sent as is` },
+    };
+    if (method === 'GET' || method === 'HEAD') view.body = { reason: `${method} requests have no body` };
+  } else {
+    const req = input instanceof Request ? input : null;
+    let headers: [string, string][] = [];
+    try { headers = [...new Headers(init?.headers !== undefined ? init.headers : req?.headers)]; } catch { /* native reports it */ }
+    view = { url: req ? req.url : new URL(String(input instanceof URL ? input.href : input), location.href).href, headers, locked: 'The request could not be prepared for editing (see Why); Continue sends it unchanged', body: { reason: 'Not available' } };
+  }
+  const d = await rt.pause(rec, 'request', plan.intercept!.rule, view, signal);
+  if (d.kind === 'abort') return 'abort';
+  if (d.kind === 'original' || !prepared) return 'keep';
+  const e = d.edit;
+  const out: RequestInit = { ...prepared.init, headers: new Headers(e.headers) };
+  let reusable = prepared.reusable;
+  if ('text' in e.body && 'text' in view.body && e.body.text !== view.body.text) { out.body = e.body.text; reusable = true; }
+  return { url: e.url ?? prepared.url, init: out, reusable };
+}
+
+/** Final hold before delivery: the server has already acted on the request. */
+async function responsePause(res: Response, method: string, signal: AbortSignal | null | undefined, plan: Plan, rec: ReqRecord, rt: Runtime): Promise<Response> {
+  const opaque = res.type === 'opaque' || res.type === 'opaqueredirect';
+  const body = opaque ? { reason: 'Opaque response: hidden from scripts' } : method === 'HEAD' || BODYLESS_STATUS.has(res.status) ? { reason: `No body (${method === 'HEAD' ? 'HEAD' : `HTTP ${res.status}`})` } : await readText(res, rt);
+  const view: PauseView = { status: res.status, headers: [...res.headers], body, ...(opaque && { locked: 'Opaque response: status, headers and body are hidden from scripts; it can only be delivered or aborted' }) };
+  let d;
+  try {
+    d = await rt.pause(rec, 'response', plan.intercept!.rule, view, signal);
+  } catch (e) {
+    res.body?.cancel().catch(() => {});
+    throw e;
+  }
+  if (d.kind === 'abort') {
+    res.body?.cancel().catch(() => {});
+    throw new DOMException('Workbench breakpoint: response aborted (the server already received the request)', 'AbortError');
+  }
+  if (d.kind === 'original' || opaque) return res;
+  const e = d.edit;
+  const text = 'text' in e.body && 'text' in view.body && e.body.text !== view.body.text ? e.body.text : undefined;
+  const headersChanged = !sameHeaders(e.headers, view.headers);
+  if (e.status === res.status && !headersChanged && text === undefined) return res;
+  return rebuild(res, { status: e.status ?? res.status, headers: new Headers(e.headers), ...(text !== undefined && { text }) }, method);
 }
 
 // ---------- providers

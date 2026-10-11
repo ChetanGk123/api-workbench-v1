@@ -8,8 +8,8 @@ export type Transport = 'fetch' | 'xhr';
 export type Module = RuleKind;
 export const MODULES: readonly Module[] = ['mock', 'intercept', 'route', 'chaos'];
 export type OpState = 'selected' | 'applied' | 'skipped' | 'superseded' | 'failed' | 'sampled-out';
-/** request/response split an intercept rule; replay is a real-chaos follow-up. */
-export type Part = 'request' | 'response' | 'replay';
+/** request/response split an intercept rule; *-pause are its breakpoints; replay is a real-chaos follow-up. */
+export type Part = 'request' | 'response' | 'request-pause' | 'response-pause' | 'replay';
 
 export interface Op {
   module: Module;
@@ -58,8 +58,8 @@ export interface Plan {
   /** Sampled-in chaos fault (synthetic provider or real follow-up). Random latency is resolved here. */
   readonly chaos?: { rule: ChaosRule; fault: ChaosFault; delayMs: number };
   readonly route?: { rule: RouteRule; to: URL; credentials?: RequestCredentials; dropAuthorization: boolean };
-  /** Parts of the intercept rule still to run (request part only for real traffic). */
-  readonly intercept?: { rule: InterceptRule; request: boolean; response: boolean };
+  /** Parts of the intercept rule still to run (request part and both pauses only for real traffic). */
+  readonly intercept?: { rule: InterceptRule; request: boolean; response: boolean; breakRequest: boolean; breakResponse: boolean };
   readonly ops: readonly Readonly<Op>[];
   /** Selection notes: conditions that could not be evaluated, budgets used up. */
   readonly notes: readonly string[];
@@ -72,6 +72,8 @@ export const LIMITS = {
   records: 500,
   eventsPerRecord: 16,
   replayInFlight: 20,
+  pauses: 20,
+  pauseDeadlineMs: 30_000,
 } as const;
 
 export const BODYLESS_STATUS = new Set([101, 103, 204, 205, 304]);
@@ -265,7 +267,18 @@ export function planRequest(cfg: Config, states: RuleStates, launchOrigin: strin
       if (noReply) op(icR, 'superseded', 'A transport failure has no response to edit', 'response');
       else { response = true; op(icR, 'selected', 'Edit response', 'response'); }
     }
-    if (request || response) intercept = { rule: icR, request, response };
+    // Breakpoints hold real traffic only: a synthetic reply has no server call to pause.
+    let breakRequest = false, breakResponse = false;
+    const why = provider === 'mock' ? 'Mock reply' : 'Synthetic chaos fault';
+    if (icR.breakRequest) {
+      if (provider !== 'network') op(icR, 'superseded', `${why}: no request is sent, so nothing is paused`, 'request-pause');
+      else { breakRequest = true; op(icR, 'selected', 'Pause before sending', 'request-pause'); }
+    }
+    if (icR.breakResponse) {
+      if (provider !== 'network') op(icR, 'superseded', `${why}: no server response to pause`, 'response-pause');
+      else { breakResponse = true; op(icR, 'selected', 'Pause before delivering the response', 'response-pause'); }
+    }
+    if (request || response || breakRequest || breakResponse) intercept = { rule: icR, request, response, breakRequest, breakResponse };
   }
 
   return Object.freeze({

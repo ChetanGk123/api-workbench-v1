@@ -12,7 +12,7 @@ Must not mutate original/sample while previewing, invoke eval, follow prototype 
 
 ## Task S13.1 — Build shared matcher and breakpoint draft
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** linking and real/synthetic pause semantics. **Status:** PARTIAL: shared matcher/link/detach and save behavior built; breakpoint flags are R5 ([R4 evidence](../R4_REPORT.md)). **Depends on:** S11.1 matcher component, S00.2, rule validation.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** linking and real/synthetic pause semantics. **Status:** IMPLEMENTED: shared matcher/link/detach, save behavior and breakpoint flags ([R4 evidence](../R4_REPORT.md), [R5 evidence](../R5_REPORT.md)). **Depends on:** S11.1 matcher component, S00.2, rule validation.
 
 1. Reuse identity/link/exact-glob/conditions editor with independent draft and action revision.
 2. Breakpoint flags explain pre-dispatch vs after-response, cap/deadline and synthetic-provider exemption.

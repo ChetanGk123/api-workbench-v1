@@ -9,6 +9,7 @@ import { createEndpointsUi } from './endpoints';
 import { createImportUi } from './importer';
 import { clampPos, GEOMETRY_KEY, MIN_SIZE, readGeometry, writeGeometry, type Pos } from './geometry';
 import { checkbox, countBadge, heading, methodBadge, NAME, tile, type Built, type Form, type Kit, type Ret, type Screen } from './kit';
+import { createPausesUi } from './pauses';
 import { createRulesUi, MOD } from './rules';
 import { createSettingsUi } from './settings';
 import { createTestUi } from './test';
@@ -59,6 +60,8 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   let filterText = '';
   let detailId = 0;
   let detailRet: Ret | null = null;
+  /** Where Back from the pause workspace goes; an open editor is kept aside, never discarded. */
+  let pausesBack: { ret: Ret; form: Form | null } | null = null;
   let lastFocus: HTMLElement | null = null;
 
   // ---------- chrome
@@ -201,10 +204,11 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   function announce(text: string) { status.textContent = text; }
   const activeModules = () => rulesUi.activeModules();
   /** The tab that owns the current view (an editor or request detail belongs to where it was opened). */
-  const owner = (): Screen => form ? form.owner : screen === 'detail' ? detailRet?.screen ?? 'home' : screen;
+  const owner = (): Screen => form ? form.owner : screen === 'detail' ? detailRet?.screen ?? 'home' : screen === 'pauses' ? 'intercept' : screen;
 
   // ---------- navigation and draft guard
   function go(next: Screen) {
+    if (screen === 'pauses' && pausesBack?.form) { form = pausesBack.form; pausesBack = null; } // its draft decision comes first
     guard(() => {
       form = null;
       screen = next;
@@ -300,6 +304,8 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       : screen === 'endpoints' ? endpointsUi.screen()
       : screen === 'settings' ? settingsUi.screen()
       : screen === 'import' ? importUi.screen()
+      : screen === 'pauses' ? pausesUi.screen(backFromPauses, pausesBack?.ret.screen ?? 'intercept')
+      : screen === 'intercept' ? interceptScreen()
       : RULE_SCREENS.has(screen) ? rulesUi.screen(screen as Module)
       : detailScreen();
     main.replaceChildren(...built.nodes);
@@ -320,14 +326,20 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       dot.hidden = !act.includes(id as Module);
     }
     const recording = recorder.recording();
-    indicators.replaceChildren(...act.map((m) => h('span', { class: 'aw-tbm', title: `${MOD[m].tab} module active` }, icon(MOD[m].icon, 'aw-i aw-i14'), h('span', { class: 'aw-dot aw-g' }))),
+    const paused = pausesUi.waiting().length;
+    const pauseBtn = (cls: string) => {
+      const b = h('button', { class: cls, type: 'button', 'aria-label': `${paused} paused — open paused requests`, title: 'Paused requests' }, icon('pause', 'aw-i aw-i14'), String(paused));
+      b.addEventListener('click', () => { restore(); openPauses(); });
+      return b;
+    };
+    indicators.replaceChildren(...(paused ? [pauseBtn('aw-bd aw-am aw-pausebtn')] : []),...act.map((m) => h('span', { class: 'aw-tbm', title: `${MOD[m].tab} module active` }, icon(MOD[m].icon, 'aw-i aw-i14'), h('span', { class: 'aw-dot aw-g' }))),
       ...(recording ? [h('span', { class: 'aw-bd aw-am', id: 'aw-rec-ind', title: 'Recorder is capturing page calls' }, 'REC')] : []));
-    launchInds.replaceChildren(...act.map((m) => {
+    launchInds.replaceChildren(...(paused ? [pauseBtn('aw-btn aw-gh aw-sm aw-ind aw-am')] : []), ...act.map((m) => {
       const b = h('button', { class: 'aw-btn aw-gh aw-ic aw-sm aw-ind', type: 'button', 'aria-label': `${MOD[m].tab} module active — open ${MOD[m].tab}` }, icon(MOD[m].icon), h('span', { class: 'aw-dot aw-g' }));
       b.addEventListener('click', () => { restore(); go(m); });
       return b;
     }));
-    launcherState.textContent = [act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active', recording ? 'Recording' : ''].filter(Boolean).join(' · ');
+    launcherState.textContent = [act.length ? act.map((m) => MOD[m].tab).join(', ') : 'No modules active', paused ? `${paused} paused` : '', recording ? 'Recording' : ''].filter(Boolean).join(' · ');
     const name = session.agg().profile.name;
     const prof = header.querySelector('#aw-profile-name')!;
     prof.textContent = name;
@@ -344,14 +356,14 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
         b('Export…', () => go('settings'), 'aw-btn aw-gh aw-sm'));
     }
     if (!form) {
-      foot.hidden = act.length === 0;
-      if (act.length) {
+      foot.hidden = act.length === 0 && !paused;
+      if (act.length || paused) {
         const stop = h('button', { class: 'aw-btn aw-out aw-sm', type: 'button' }, icon('stop', 'aw-i aw-i12'), 'Stop all');
         stop.addEventListener('click', () => {
           rulesUi.stopAll();
           main.querySelector<HTMLElement>('[data-focus]')?.focus(); // the Stop all button just disappeared
         });
-        foot.replaceChildren(h('span', { class: 'aw-xs aw-mu aw-grow' }, `Active: ${act.map((m) => MOD[m].tab).join(', ')}`), stop);
+        foot.replaceChildren(h('span', { class: 'aw-xs aw-mu aw-grow' }, [act.length ? `Active: ${act.map((m) => MOD[m].tab).join(', ')}` : '', paused ? `${paused} paused` : ''].filter(Boolean).join(' · ')), stop);
       } else foot.replaceChildren();
     }
   }
@@ -369,6 +381,8 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   const unsubscribe = rt.subscribe(schedule);
   const unsubSession = session.subscribe(schedule);
   const unsubRecorder = recorder.subscribe(schedule);
+  // Countdown display only: each pause's deadline timer lives in the runtime and is never reset here.
+  const ticker = setInterval(() => { if (rt.pauses().some((p) => p.state === 'waiting')) schedule(); }, 1000);
 
   // ---------- shared pieces
   const backButton = (to: Screen, onClick: () => void) => {
@@ -452,6 +466,27 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     backButton: (to, onClick) => backButton(to, onClick),
   };
   const rulesUi = createRulesUi(kit, { traffic, statusBadge });
+  const pausesUi = createPausesUi(kit);
+
+  function openPauses(id?: number) {
+    if (screen !== 'pauses') pausesBack = { ret: here(), form };
+    form = null;
+    if (id) pausesUi.select(id);
+    screen = 'pauses';
+    render();
+  }
+  function backFromPauses() {
+    const b = pausesBack ?? { ret: { screen: 'intercept' as Screen, scroll: 0, listScroll: 0, focus: null }, form: null };
+    pausesBack = null;
+    if (b.form) { form = b.form; screen = b.ret.screen; render(); } else goBack(b.ret);
+  }
+  /** Intercept list with the paused-queue summary under its activation control. */
+  function interceptScreen(): Built {
+    const b = rulesUi.screen('intercept');
+    const c = pausesUi.card(() => openPauses());
+    b.nodes.splice(3, 0, c.el);
+    return { nodes: b.nodes, refresh: () => { c.refresh(); b.refresh?.(); } };
+  }
   rulesUi.sync();
   const unsubRules = session.subscribe(rulesUi.sync);
   const endpointsUi = createEndpointsUi(kit);
@@ -588,10 +623,13 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       b.addEventListener('click', () => { detailId = id; render(); });
       return b;
     };
+    const held = rt.pauses().find((p) => p.rec === r && p.state === 'waiting');
     const source = r.source === 'replay' ? `Chaos replay copy of request #${r.parentId}; sent by Workbench, not the page`
       : `This frame (${rt.origin}) · ${r.source === 'tester' ? 'Test → Once with rules' : 'page'} ${r.transport === 'fetch' ? 'fetch()' : 'XMLHttpRequest'}`;
     return [
       h('p', { class: 'aw-m0 aw-fg aw-wrap' }, `${headline(r)} · ${r.transport === 'fetch' ? 'Fetch' : `XHR ${r.responseType ?? ''}`.trim()} · ${synthetic ? `${by} reply` : routed ? 'routed URL sent' : r.outcome === 'pending' ? 'in progress' : 'original URL sent'}`),
+      ...(held ? [h('div', { class: 'aw-alert aw-notice aw-row aw-gap8', role: 'status' }, icon('pause', 'aw-i aw-i14'),
+        h('span', { class: 'aw-grow aw-wrap' }, `Paused at the ${held.stage} breakpoint.`), (() => { const b = h('button', { class: 'aw-btn aw-out aw-sm', type: 'button' }, 'Open pause'); b.addEventListener('click', () => openPauses(held.id)); return b; })())] : []),
       section('Overview', dl([
         ['Source', source],
         ['Transport', transport],
@@ -646,6 +684,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     },
     destroy() {
       cancelAnimationFrame(frame);
+      clearInterval(ticker);
       testUi.stop();
       unsubscribe();
       unsubSession();

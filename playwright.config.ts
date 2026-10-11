@@ -14,7 +14,7 @@ export default defineConfig({
   use: { baseURL: `http://127.0.0.1:${PORT}` },
   projects: [
     { name: 'core', testMatch: /core\.spec\.ts$/ },
-    { name: 'chrome', testMatch: /(browser|shell|data|import|rules)\.spec\.ts$/, use: { channel: process.env.AW_BROWSER ?? 'chrome' } },
+    { name: 'chrome', testMatch: /(browser|shell|data|import|rules|pauses)\.spec\.ts$/, use: { channel: process.env.AW_BROWSER ?? 'chrome' } },
   ],
   webServer: {
     command: 'node tests/fixture/server.mjs',

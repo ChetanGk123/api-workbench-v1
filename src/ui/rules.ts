@@ -6,7 +6,7 @@ import {
   type Aggregate, type ChaosFault, type ChaosFaultKind, type ChaosRule, type Diag, type InterceptRule, type Matcher, type MockRule,
   type PatchOp, type RouteRule, type Rule, type RuleKind, type Transform, validateRuleIn,
 } from '../data/schema';
-import { describeFault, matches, routedUrl, ruleName, type Config, type Module, byPrecedence } from '../net/plan';
+import { describeFault, LIMITS, matches, routedUrl, ruleName, type Config, type Module, byPrecedence } from '../net/plan';
 import { transformBody } from '../net/patch';
 import type { ReqRecord } from '../net/runtime';
 import { h, icon, type IconName } from './dom';
@@ -66,7 +66,8 @@ export function ruleSummary(r: Rule): string {
     }
     case 'intercept': {
       const t = (x: Transform) => [x.status && `status ${x.status}`, x.setHeaders.length + x.removeHeaders.length && plural(x.setHeaders.length + x.removeHeaders.length, 'header'), x.patch.length && plural(x.patch.length, 'patch op'), x.replace && 'replace'].filter(Boolean).join(', ');
-      return [t(r.request) && `request: ${t(r.request)}`, t(r.response) && `response: ${t(r.response)}`].filter(Boolean).join(' · ');
+      const brk = [r.breakRequest && 'request', r.breakResponse && 'response'].filter(Boolean).join(' + ');
+      return [brk && `breaks on ${brk}`, t(r.request) && `request: ${t(r.request)}`, t(r.response) && `response: ${t(r.response)}`].filter(Boolean).join(' · ');
     }
     case 'route': return `→ ${r.destinationOrigin}${r.pathRewrite || ''}`;
     case 'chaos': return `${r.mode} · ${FAULTS.find(([k]) => k === r.fault.kind)![1]} · ${r.probability}%${r.budget ? ` · budget ${r.budget}` : ''}`;
@@ -90,9 +91,11 @@ export function createRulesUi(kit: Kit, deps: {
     const agg = s.agg();
     const rules = compileRules(agg);
     let active = cfg().active;
-    if (lastProfile && lastProfile !== agg.profile.id && Object.values(active).some(Boolean)) {
+    if (lastProfile && lastProfile !== agg.profile.id) {
+      const n = rt.releasePauses('Profile switched');
+      const was = Object.values(active).some(Boolean);
       active = { mock: false, intercept: false, route: false, chaos: false };
-      kit.announce('Profile switched: every module is now inactive.');
+      if (was || n) kit.announce(`Profile switched: every module is now inactive.${n ? ` ${n} paused item${n > 1 ? 's' : ''} continued unchanged.` : ''}`);
     }
     lastProfile = agg.profile.id;
     const sig = JSON.stringify([rules, active]);
@@ -109,7 +112,8 @@ export function createRulesUi(kit: Kit, deps: {
   function stopAll() {
     rt.setConfig({ rules: cfg().rules, active: { mock: false, intercept: false, route: false, chaos: false } });
     lastSig = JSON.stringify([cfg().rules, cfg().active]);
-    kit.announce('All modules deactivated. Requests already in progress keep their selected behavior.');
+    const n = rt.releasePauses('Stop all');
+    kit.announce(`All modules deactivated.${n ? ` ${n} paused item${n > 1 ? 's' : ''} continued unchanged.` : ''} Requests already in progress keep their selected behavior.`);
   }
 
   const rulesOf = (m: Module) => s.agg().rules.filter((r) => r.kind === m).sort(byPrecedence);
@@ -400,7 +404,7 @@ export function createRulesUi(kit: Kit, deps: {
     function actionSections(cur: Aggregate): HTMLElement[] {
       switch (draft.kind) {
         case 'mock': return [mockSection(draft)];
-        case 'intercept': return [transformSection(draft, 'request', cur), transformSection(draft, 'response', cur)];
+        case 'intercept': return [breakSection(draft), transformSection(draft, 'request', cur), transformSection(draft, 'response', cur)];
         case 'route': return [routeSection(draft)];
         case 'chaos': return [chaosSection(draft)];
       }
@@ -461,6 +465,14 @@ export function createRulesUi(kit: Kit, deps: {
       const el = h('span', { class: 'aw-err', role: 'alert' });
       errs.slot(path, el, el);
       return el;
+    }
+
+    function breakSection(d: InterceptRule): HTMLElement {
+      return section('Breakpoints',
+        h('div', { class: 'aw-chk' }, checkbox('Break on request', d.breakRequest, (v) => { d.breakRequest = v; }), 'Break on request', h('span', { class: 'aw-mu' }, '— before it is sent; edit or abort with zero server hits')),
+        h('div', { class: 'aw-chk' }, checkbox('Break on response', d.breakResponse, (v) => { d.breakResponse = v; }), 'Break on response', h('span', { class: 'aw-mu' }, '— after the server answered, before the page sees it')),
+        errLine('breakRequest'),
+        h('p', { class: 'aw-hint aw-m0 aw-wrap' }, `Real traffic only: a mock or synthetic chaos reply is never paused. Each pause waits at most ${LIMITS.pauseDeadlineMs / 1000} s and then continues unchanged; at most ${LIMITS.pauses} are held at once and later ones pass through. A response pause happens after transforms and real chaos, so it is the final say.`));
     }
 
     function transformSection(d: InterceptRule, stage: 'request' | 'response', cur: Aggregate): HTMLElement {

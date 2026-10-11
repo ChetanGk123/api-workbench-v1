@@ -1,6 +1,6 @@
 # Network and lifecycle contract
 
-Status: proposed operation contract. Every capability below needs separate Chrome and Edge evidence. No table entry is a claim that the existing or rebuilt adapter has passed it. R4 implements the rule pipeline in Chrome ([R4 evidence](R4_REPORT.md)); its XHR finding is recorded under "XHR adapter experiment".
+Status: proposed operation contract. Every capability below needs separate Chrome and Edge evidence. No table entry is a claim that the existing or rebuilt adapter has passed it. R4 implements the rule pipeline and R5 the pause registry in Chrome ([R4 evidence](R4_REPORT.md), [R5 evidence](R5_REPORT.md)); its XHR finding is recorded under "XHR adapter experiment".
 
 The [Fetch Standard](https://fetch.spec.whatwg.org/#fetch-api) defines request/response semantics, the [XHR Standard](https://xhr.spec.whatwg.org/#interface-xmlhttprequest) defines XHR fields/events, and the [Streams Standard](https://streams.spec.whatwg.org/#rs-tee) defines stream splitting. Use native fixture behavior and these standards as the oracle. Bookmark launch, styles and subsequent connections require separate policy checks under [CSP](https://www.w3.org/TR/CSP3/#connect-src); injection success is insufficient.
 

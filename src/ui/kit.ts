@@ -4,7 +4,7 @@ import type { Session } from '../data/store';
 import type { Runtime } from '../net/runtime';
 import { h, icon, type IconName } from './dom';
 
-export type Screen = 'home' | 'test' | 'mock' | 'intercept' | 'route' | 'chaos' | 'endpoints' | 'import' | 'settings' | 'detail';
+export type Screen = 'home' | 'test' | 'mock' | 'intercept' | 'route' | 'chaos' | 'endpoints' | 'import' | 'settings' | 'detail' | 'pauses';
 /** Where Back goes, and what to put back there: scroll positions and the focused row/control key. */
 export interface Ret { screen: Screen; scroll: number; listScroll: number; focus: string | null }
 export type Built = { nodes: Node[]; refresh?: () => void };
@@ -40,7 +40,7 @@ export interface Kit {
   backButton(to: Screen, onClick: () => void): HTMLButtonElement;
 }
 
-export const NAME: Record<Screen, string> = { home: 'Home', test: 'Test', mock: 'Mock', intercept: 'Intercept', route: 'Route', chaos: 'Chaos', endpoints: 'Endpoints', import: 'Import', settings: 'Settings', detail: 'request' };
+export const NAME: Record<Screen, string> = { home: 'Home', test: 'Test', mock: 'Mock', intercept: 'Intercept', route: 'Route', chaos: 'Chaos', endpoints: 'Endpoints', import: 'Import', settings: 'Settings', detail: 'request', pauses: 'Paused requests' };
 
 export const heading = (text: string, cls = 'aw-h') => h('h2', { class: cls, tabindex: '-1', 'data-focus': true }, text);
 export const tile = (name: IconName) => h('div', { class: 'aw-tile' }, icon(name));

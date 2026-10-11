@@ -170,7 +170,14 @@ export interface Transform {
   /** Response only: 0 keeps the original status. */
   status: number;
 }
-export interface InterceptRule extends RuleBase { kind: 'intercept'; request: Transform; response: Transform }
+export interface InterceptRule extends RuleBase {
+  kind: 'intercept';
+  request: Transform;
+  response: Transform;
+  /** Hold real requests before dispatch / real responses before delivery (R5). Absent in R4 data = false. */
+  breakRequest: boolean;
+  breakResponse: boolean;
+}
 
 export interface RouteRule extends RuleBase {
   kind: 'route';
@@ -812,9 +819,13 @@ function validateRule(v: V, x: unknown, p: string): Rule {
       return { ...base, kind, mode, slots, exhaustion: v.oneOf(o, 'exhaustion', p, ['repeat-last', 'loop', 'network-error'] as const) };
     }
     case 'intercept': {
-      const r: InterceptRule = { ...base, kind, request: transform(v, o.request, `${p}.request`, 'request'), response: transform(v, o.response, `${p}.response`, 'response') };
+      const flag = (k: string) => (o[k] === undefined ? false : v.bool(o, k, p));
+      const r: InterceptRule = {
+        ...base, kind, request: transform(v, o.request, `${p}.request`, 'request'), response: transform(v, o.response, `${p}.response`, 'response'),
+        breakRequest: flag('breakRequest'), breakResponse: flag('breakResponse'),
+      };
       const empty = (t: Transform) => !t.setHeaders.length && !t.removeHeaders.length && !t.patch.length && !t.replace && !t.status;
-      if (empty(r.request) && empty(r.response)) v.err(`${p}.response`, 'Add at least one request or response change');
+      if (empty(r.request) && empty(r.response) && !r.breakRequest && !r.breakResponse) v.err(`${p}.response`, 'Add at least one request or response change, or a breakpoint');
       return r;
     }
     case 'route': {
@@ -870,7 +881,7 @@ export function newRule<K extends RuleKind>(agg: Aggregate, kind: K): Extract<Ru
   const base = { id: newId('rule'), label: '', enabled: true, priority: 0, seq: Math.max(0, ...agg.rules.map((r) => r.seq)) + 1, revision: 1, matcher: emptyMatcher() };
   const by: { [k in RuleKind]: Extract<Rule, { kind: k }> } = {
     mock: { ...base, kind: 'mock', mode: 'static', slots: [newSlot()], exhaustion: 'repeat-last' },
-    intercept: { ...base, kind: 'intercept', request: emptyTransform(), response: emptyTransform() },
+    intercept: { ...base, kind: 'intercept', request: emptyTransform(), response: emptyTransform(), breakRequest: false, breakResponse: false },
     route: { ...base, kind: 'route', destinationOrigin: '', pathRewrite: '', credentials: 'caller', keepAuthorization: false },
     chaos: { ...base, kind: 'chaos', mode: 'synthetic', fault: { kind: 'status', status: 503, body: '' }, probability: 100, seed: '', budget: 0, preDelayMs: 0, durationMs: 0 },
   };
@@ -930,7 +941,7 @@ export function rulesFromV1(legacy: unknown[], endpointIds: Set<string>): { rule
     };
     let out: unknown;
     if (r.kind === 'mock') out = { ...base, kind: 'mock', mode: r.mode, exhaustion: r.exhaustion, slots: arrOf(r.slots).map((s) => ({ id: newId('slot'), status: s.status, headers: lines(s.headers), body: s.body ?? '', delayMs: s.delayMs ?? 0, fault: s.fault ?? 'none' })) };
-    else if (r.kind === 'intercept') out = { ...base, kind: 'intercept', request: xform(r.request), response: xform(r.response) };
+    else if (r.kind === 'intercept') out = { ...base, kind: 'intercept', request: xform(r.request), response: xform(r.response), breakRequest: r.breakRequest === true, breakResponse: r.breakResponse === true };
     else if (r.kind === 'route') {
       const mo = typeof r.matchOrigin === 'string' && r.matchOrigin ? r.matchOrigin : origin;
       // v1 blank rewrite + "preserve path" off meant "/".

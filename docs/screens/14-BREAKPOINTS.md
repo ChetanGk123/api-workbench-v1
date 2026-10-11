@@ -12,7 +12,7 @@ Must not imply a response pause undoes a transfer, resend a dispatched request o
 
 ## Task S14.1 — Build queue selection and pause inspection
 
-**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** immutable pending snapshots and live countdown UI. **Status:** NOT STARTED. **Depends on:** pause registry, S00/S21.
+**Suggested model:** GPT-6.1 Sol. **Effort:** high. **Why:** immutable pending snapshots and live countdown UI. **Status:** IMPLEMENTED; verification incomplete (Edge, zoom, screen reader NOT RUN) ([R5 evidence](../R5_REPORT.md)). **Depends on:** pause registry, S00/S21.
 
 1. Subscribe to pause IDs/summaries, retain selected ID and its editable draft while queue changes.
 2. Render stage/timer/cap/staleness/caller status and explicit original metadata.
@@ -23,7 +23,7 @@ Must not imply a response pause undoes a transfer, resend a dispatched request o
 
 ## Task S14.2 — Implement validated continuation and abort
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** exactly-once completion and native event/cancel semantics. **Status:** NOT STARTED. **Depends on:** S14.1, NETWORK pause/delivery state machine.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** exactly-once completion and native event/cancel semantics. **Status:** IMPLEMENTED; method edits and re-signing are not offered (re-signing is R6) ([R5 evidence](../R5_REPORT.md)). **Depends on:** S14.1, NETWORK pause/delivery state machine.
 
 1. Validate draft against stage/transport/method/body/signing capability; an invalid edit keeps pause editable without dispatch.
 2. Atomically claim the pause before Continue/Original/Abort; duplicate clicks or concurrent expiry/caller abort cannot both win.
@@ -35,7 +35,7 @@ Must not imply a response pause undoes a transfer, resend a dispatched request o
 
 ## Task S14.3 — Implement bulk actions, launcher and shutdown cases
 
-**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** bulk/close races can duplicate real writes. **Status:** NOT STARTED. **Depends on:** S14.2/S20, lifecycle owner.
+**Suggested model:** GPT-6 Astra. **Effort:** high. **Why:** bulk/close races can duplicate real writes. **Status:** IMPLEMENTED; tester-owned pauses and profile-switch release not browser-tested ([R5 evidence](../R5_REPORT.md)). **Depends on:** S14.2/S20, lifecycle owner.
 
 1. Continue all captures eligible queue IDs, applies each once and leaves later arrivals separate.
 2. Launcher shows pause count/stage and Restore opens selected queue context.
