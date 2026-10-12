@@ -98,6 +98,11 @@ test.describe('mock sequences (G09)', () => {
     await format.click();
     await expect(body).toHaveValue('{\n  "a": 1,\n  "b": [\n    1,\n    2\n  ]\n}');
     await expect(format).toBeHidden();
+    await body.fill('{"data":[{"m":1},],"icon":"success"}'); // trailing comma: offered as Fix & format
+    const fix = page.getByRole('button', { name: 'Format reply 1 body as JSON, removing trailing commas' });
+    await expect(fix).toHaveText('Fix & format');
+    await fix.click();
+    await expect(body).toHaveValue('{\n  "data": [\n    {\n      "m": 1\n    }\n  ],\n  "icon": "success"\n}');
     await body.fill('not json');
     await expect(format).toBeHidden();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();

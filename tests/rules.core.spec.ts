@@ -9,6 +9,7 @@ import { applyPatch, replaceText, transformBody } from '../src/net/patch';
 import { globMatch, planRequest, routedUrl, seeded, type Config, type Intake, type RuleStates } from '../src/net/plan';
 import { createRuntime } from '../src/net/runtime';
 import { compileRules } from '../src/ui/rules';
+import { stripTrailingCommas } from '../src/ui/kit';
 
 const ORIGIN = 'http://app.test';
 const base = defaultProfile();
@@ -268,5 +269,15 @@ test.describe('rule validation and persistence (G08/G21)', () => {
     const r = validateAggregate(stored);
     expect(r.ok && r.value.rules.length).toBe(3);
     expect(r.ok && r.value.legacyRules.length).toBe(2);
+  });
+});
+
+test.describe('Format JSON repair (trailing commas only)', () => {
+  test('removes commas before ] or } outside strings, nothing else', () => {
+    expect(stripTrailingCommas('{"a":[1,2,],}')).toBe('{"a":[1,2]}');
+    expect(stripTrailingCommas('{\n  "data": [\n    {"id": 1},\n  ],\n  "ok": true\n}')).toBe('{\n  "data": [\n    {"id": 1}\n  ],\n  "ok": true\n}');
+    expect(stripTrailingCommas('{"t":"a,]b,}","q":"x\\",]"}')).toBe('{"t":"a,]b,}","q":"x\\",]"}'); // inside strings, incl. an escaped quote
+    expect(stripTrailingCommas('[1,,2]')).toBe('[1,,2]'); // other errors are left for the parser to report
+    expect(JSON.parse(stripTrailingCommas('{"data":[{"m":1},{"m":2},],"icon":"success",}'))).toEqual({ data: [{ m: 1 }, { m: 2 }], icon: 'success' });
   });
 });

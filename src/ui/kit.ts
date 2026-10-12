@@ -109,18 +109,51 @@ export function fileButton(input: HTMLInputElement, text = 'Choose file') {
 /** "Format JSON" for a textarea: shown only while its text is valid, not yet 2-space formatted JSON. Formatting
  * dispatches `input`, so the field's own handler stores the new text. Code that sets the value must dispatch `input` too. */
 export function formatJson(ta: HTMLTextAreaElement, label: string): HTMLButtonElement {
-  const pretty = () => { try { return JSON.stringify(JSON.parse(ta.value), null, 2); } catch { return null; } };
+  /** Formatted text, and whether trailing commas had to be removed first (the only repair made). */
+  const pretty = (): { text: string; fixed: boolean } | null => {
+    try { return { text: JSON.stringify(JSON.parse(ta.value), null, 2), fixed: false }; } catch { /* maybe only trailing commas */ }
+    try { return { text: JSON.stringify(JSON.parse(stripTrailingCommas(ta.value)), null, 2), fixed: true }; } catch { return null; }
+  };
   const b = btn('Format JSON', () => {
     const f = pretty();
     if (f === null) return;
-    ta.value = f;
+    ta.value = f.text;
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     ta.focus();
   }, 'aw-btn aw-out aw-sm aw-fmt', { 'aria-label': label });
-  const sync = () => { const f = ta.value.trim() ? pretty() : null; b.hidden = f === null || f === ta.value; };
+  const sync = () => {
+    const f = ta.value.trim() ? pretty() : null;
+    b.hidden = f === null || f.text === ta.value;
+    b.textContent = f?.fixed ? 'Fix & format' : 'Format JSON';
+    b.setAttribute('aria-label', f?.fixed ? `${label}, removing trailing commas` : label);
+    b.title = f?.fixed ? 'Removes the commas before a closing ] or } (not valid JSON), then formats' : '';
+  };
   ta.addEventListener('input', sync);
   sync();
   return b;
+}
+
+/** Remove commas that directly precede a closing ] or } outside strings — e.g. after trimming a list by hand. */
+export function stripTrailingCommas(text: string): string {
+  let out = '';
+  let inStr = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (inStr) {
+      out += c;
+      if (c === '\\') out += text[++i] ?? '';
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === ',') {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j]!)) j++;
+      if (text[j] === ']' || text[j] === '}') continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 /** A field with a Format JSON button appended (right-aligned, hidden until useful). */
