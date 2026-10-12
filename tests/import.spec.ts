@@ -12,15 +12,21 @@ const counters = async (page: Page): Promise<Record<string, number>> => (await p
 const send = (page: Page, o: object) => page.evaluate((x) => (window as any).fx.send(x), o);
 const panelText = (page: Page) => page.locator('[data-api-workbench]').evaluate((el) => (el.shadowRoot!.querySelector('.aw-panel') as HTMLElement).innerText);
 
-async function launch(page: Page) {
+async function launch(page: Page, open: (page: Page) => Promise<void> = openImport) {
   await page.evaluate(source);
   await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
   await expect(page.locator('#aw-store-state')).toHaveText(/All changes saved|Storage unavailable/);
-  await openImport(page);
+  await open(page);
 }
 const openImport = async (page: Page) => {
   await page.getByRole('button', { name: 'Import', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Import' })).toBeVisible();
+};
+/** The recorder has its own screen, opened from Home → Quick actions → Record. */
+const openRecord = async (page: Page) => {
+  await page.getByRole('navigation', { name: 'Modules' }).getByRole('button', { name: 'Home', exact: true }).click();
+  await page.getByRole('button', { name: 'Record', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: 'Record', exact: true })).toBeVisible();
 };
 async function fresh(page: Page) {
   await page.goto(`${A}/fixture`);
@@ -40,7 +46,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('recorder (G18, S06)', () => {
   test('captures future Fetch and XHR once each, joins responses by request ID, redacts, promotes only the selection', async ({ page }) => {
-    await launch(page);
+    await launch(page, openRecord);
     await send(page, { url: '/api/echo?before=1' }); // before Start: never captured
     await button(page, 'Start recording').click();
     await expect(page.locator('#aw-rec-ind')).toHaveText('REC');
@@ -51,7 +57,11 @@ test.describe('recorder (G18, S06)', () => {
       send(page, { url: '/api/binary?n=64', responseType: 'arraybuffer' }),
     ]);
     await expect(page.locator('#aw-rec-count')).toContainText('3 of 100 calls');
+    // While recording the captured calls are listed; on Stop the review (endpoints + destination) appears by itself.
+    await expect(page.getByRole('list', { name: 'Captured calls, newest first' }).getByRole('listitem')).toHaveCount(3);
     await button(page, 'Stop recording').click();
+    await expect(page.locator('#aw-imp-review')).toContainText('3 candidates');
+    await expect(page.locator('#aw-imp-review')).toContainText('Destination');
     await expect(page.locator('#aw-rec-ind')).toHaveCount(0);
     await send(page, { url: '/api/echo?after=1' }); // after Stop: not captured
     await page.waitForTimeout(100);
@@ -88,14 +98,14 @@ test.describe('recorder (G18, S06)', () => {
     await expect(page.locator('#aw-once-blocked')).toContainText('value was redacted on export or capture');
 
     // Promoted calls leave the draft only on an explicit cleanup.
-    await openImport(page);
+    await openRecord(page);
     await expect(page.locator('#aw-rec-count')).toContainText('3 of 100 calls');
     await button(page, 'Remove imported calls from the recorder draft').click();
     await expect(page.locator('#aw-rec-count')).toHaveText(/^1 of 100 calls/);
   });
 
   test('an unknown-length slow stream is excluded from the capture; the page still gets the whole body (G07)', async ({ page }) => {
-    await launch(page);
+    await launch(page, openRecord);
     await button(page, 'Start recording').click();
     const r = await send(page, { url: '/api/stream?parts=15&gap=200' });
     expect(r.body.text).toBe(Array.from({ length: 15 }, (_, i) => `chunk${i};`).join(''));
@@ -111,6 +121,7 @@ test.describe('recorder (G18, S06)', () => {
     await button(page, 'Apply').click();
     await button(page, 'Import 1 selected').click();
     await expect(page.locator('#aw-imp-saved')).toContainText('1 added');
+    await openRecord(page);
     await button(page, 'Start recording').click();
     const runRules = async () => {
       await page.getByRole('button', { name: 'Home', exact: true }).click();
@@ -120,7 +131,7 @@ test.describe('recorder (G18, S06)', () => {
       const n = (await counters(page))['/api/echo'] ?? 0;
       await page.locator('#aw-once-run').click();
       await expect.poll(async () => (await counters(page))['/api/echo']).toBe(n + 1);
-      await openImport(page);
+      await openRecord(page);
     };
     await runRules();
     await page.waitForTimeout(150);
@@ -133,7 +144,7 @@ test.describe('recorder (G18, S06)', () => {
   });
 
   test('stops at the call limit with a usable draft; recovery restores it inactive after reload; Reset previews and clears', async ({ page }) => {
-    await launch(page);
+    await launch(page, openRecord);
     await button(page, 'Start recording').click();
     await page.evaluate(() => Promise.all(Array.from({ length: 105 }, (_, i) => (window as any).fx.send({ url: `/api/text?t=${i}` }))));
     await expect(page.locator('#aw-rec-reason')).toContainText('Stopped at the 100-call limit');
@@ -144,7 +155,7 @@ test.describe('recorder (G18, S06)', () => {
     await page.waitForTimeout(500); // recovery write is debounced
     await page.reload();
     await page.waitForFunction(() => (window as any).fx);
-    await launch(page);
+    await launch(page, openRecord);
     await expect(page.locator('#aw-rec-state')).toContainText('Recovered draft from');
     await expect(page.locator('#aw-rec-state')).toContainText('not recording');
     await expect(page.locator('#aw-rec-count')).toContainText('100 of 100 calls');
@@ -162,7 +173,7 @@ test.describe('recorder (G18, S06)', () => {
     await expect(page.locator('#aw-rec-count')).toHaveText(/^0 of 100 calls/);
     await page.reload();
     await page.waitForFunction(() => (window as any).fx);
-    await launch(page);
+    await launch(page, openRecord);
     await expect(page.locator('#aw-rec-state')).toHaveText('Not recording');
   });
 });
@@ -291,7 +302,7 @@ test.describe('import review and commit (G19 HAR/native, G20)', () => {
     expect(await endpointCount(page)).toBe('Default · 2 endpoints');
   });
 
-  test('Import and recorder fit a narrow viewport (G22, emulated)', async ({ page }) => {
+  test('Import and Record fit a narrow viewport (G22, emulated)', async ({ page }) => {
     await launch(page);
     await page.locator('#aw-imp-text').fill(harText(A));
     await button(page, 'Apply').click();
@@ -306,6 +317,9 @@ test.describe('import review and commit (G19 HAR/native, G20)', () => {
     expect(o.panel).toBeLessThanOrEqual(0);
     expect(o.main).toBeLessThanOrEqual(0);
     await page.locator('#aw-imp-commit').scrollIntoViewIfNeeded();
-    await expect(page.locator('#aw-imp-commit')).toBeInViewport();
+    await expect(page.locator('#aw-imp-commit')).toBeInViewport();    await openRecord(page);
+    const r = await overflow();
+    expect(r.panel).toBeLessThanOrEqual(0);
+    expect(r.main).toBeLessThanOrEqual(0);
   });
 });

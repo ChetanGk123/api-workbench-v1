@@ -221,7 +221,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
 
   // ---------- navigation and draft guard
   /** Settings, Import and Endpoints open with a sub-bar whose Back returns here (module tabs stay: G22). */
-  const SUB = new Set<Screen>(['settings', 'import', 'endpoints']);
+  const SUB = new Set<Screen>(['settings', 'import', 'record', 'endpoints']);
   let subBack: Screen = 'home';
   function go(next: Screen) {
     if (screen === 'pauses' && pausesBack?.form) { form = pausesBack.form; pausesBack = null; } // its draft decision comes first
@@ -331,6 +331,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       : screen === 'endpoints' ? endpointsUi.screen()
       : screen === 'settings' ? settingsUi.screen()
       : screen === 'import' ? importUi.screen()
+      : screen === 'record' ? importUi.recordScreen()
       : screen === 'pauses' ? pausesUi.screen(backFromPauses, pausesBack?.ret.screen ?? 'intercept')
       : screen === 'intercept' ? interceptScreen()
       : RULE_SCREENS.has(screen) ? rulesUi.screen(screen as Module)
@@ -416,7 +417,8 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     });
   };
   const prefs = () => session.agg().profile.settings;
-  const shown = (m: Screen) => !(prefs().hidden as string[]).includes(m);
+  /** Record is the recorder module's screen, hidden with it in Settings → Modules. */
+  const shown = (m: Screen) => !(prefs().hidden as string[]).includes(m === 'record' ? 'recorder' : m);
   const recorder = createRecorder(rt, () => ({ calls: prefs().recorderCalls, recovery: prefs().recorderRecovery }));
   // Settings that change resources, not just screens: record cap, body reads, recorder.
   let lastPrefs = '';
@@ -518,6 +520,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     openForm(f) { form = f; render(); },
     closeForm(focus) { const f = form; form = null; if (f) goBack(f.ret, focus === undefined ? f.ret.focus : focus); },
     leaveForm,
+    guard: (next) => guard(next),
     runEndpoint(id) { guard(() => { form = null; testUi.select(id); screen = 'test'; render(); }); },
     editEndpoint(id, extra) { endpointsUi.openEditor(id, here(), extra as Parameters<typeof endpointsUi.openEditor>[2]); },
     backButton: (to, onClick) => backButton(to, onClick),
@@ -648,7 +651,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
         testerCard(),
         ...(['mock', 'intercept', 'route', 'chaos'] as const).filter(shown).map(moduleCard),
         h('div', { class: 'aw-col aw-gap8 aw-mt2' }, h('div', { class: 'aw-cap aw-capl' }, 'Quick actions'),
-          h('div', { class: 'aw-g3' }, qa('Endpoints', 'book', 'endpoints'), qa('Import', 'import', 'import'), qa('Settings', 'settings', 'settings'))),
+          h('div', { class: 'aw-qas' }, qa('Endpoints', 'book', 'endpoints'), ...(shown('record') ? [qa('Record', 'record', 'record')] : []), qa('Import', 'import', 'import'), qa('Settings', 'settings', 'settings'))),
         h('div', { class: 'aw-col aw-gap8 aw-mt2' },
           h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl aw-grow' }, h('span', {}, 'Recent activity '), count), h('span', { class: 'aw-chk' }, followCb, 'Follow newest'), clear),
           h('label', { class: 'aw-sr', for: 'aw-filter' }, 'Filter recent activity'), filterIn,

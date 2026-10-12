@@ -14,12 +14,14 @@ export function record(s: Stat, ms: number) {
   if (s.samples.length < SAMPLE_CAP) s.samples.push(ms); else s.capped = true;
 }
 
-/** Nearest-rank P95 of retained samples: sorted[ceil(0.95 n) - 1]. */
-export function p95(samples: readonly number[]): number | null {
+/** Nearest-rank percentile of retained samples: sorted[ceil(q n) - 1]. */
+function percentile(samples: readonly number[], q: number): number | null {
   if (!samples.length) return null;
   const sorted = [...samples].sort((a, b) => a - b);
-  return sorted[Math.ceil(0.95 * sorted.length) - 1]!;
+  return sorted[Math.ceil(q * sorted.length) - 1]!;
 }
+export const p95 = (samples: readonly number[]) => percentile(samples, 0.95);
+export const p99 = (samples: readonly number[]) => percentile(samples, 0.99);
 export const mean = (s: Stat): number | null => (s.n ? s.sum / s.n : null);
 
 /** Totals across endpoints: sums and counts, never a mean of means. */

@@ -11,7 +11,7 @@ import { transformBody } from '../net/patch';
 import type { ReqRecord } from '../net/runtime';
 import { h, icon, type IconName } from './dom';
 import {
-  btn, checkbox, countBadge, Errors, field, heading, input, methodBadge, pairRows, section, select, textarea, tile,
+  btn, checkbox, countBadge, Errors, field, formatJson, heading, input, methodBadge, pairRows, section, select, textarea, tile, withFormat,
   type Built, type Form, type Kit, type Ret,
 } from './kit';
 
@@ -425,7 +425,8 @@ export function createRulesUi(kit: Kit, deps: {
           const status = input(String(sl.status), (v) => { sl.status = v.trim() === '' ? NaN : Number(v); }, { mono: true, id: `aw-slot-${i}-status` });
           const fault = select(sl.fault, [['none', 'HTTP reply'], ['network-error', 'Network failure'], ['timeout', 'Timeout']], (v) => { sl.fault = v; draw(); }, { id: `aw-slot-${i}-fault` });
           const body = textarea(sl.body, (v) => { sl.body = v; showJson(); }, { id: `aw-slot-${i}-body`, rows: 4 });
-          const jsonState = h('span', { class: 'aw-hint' });
+          const jsonState = h('span', { class: 'aw-hint aw-grow' });
+          const fmt = formatJson(body, `Format reply ${i + 1} body as JSON`);
           const showJson = () => {
             const ct = sl.headers.find(([k]) => k.toLowerCase() === 'content-type')?.[1] ?? '';
             if (!/json/i.test(ct) || !sl.body) { jsonState.textContent = ''; return; }
@@ -446,7 +447,7 @@ export function createRulesUi(kit: Kit, deps: {
               field('Delay (ms)', input(String(sl.delayMs), (v) => { sl.delayMs = v.trim() === '' ? NaN : Number(v); }, { mono: true, id: `aw-slot-${i}-delay` }), errs, `${p}.delayMs`)),
             ...(http ? [
               h('span', { class: 'aw-lbl' }, 'Headers'), pairRows(sl.headers, 'reply header', errs, `${p}.headers`, showJson),
-              field('Body', body, errs, `${p}.body`, `Sent exactly as typed. HEAD requests and ${[...BODYLESS].join('/')} replies have no body.`), jsonState,
+              field('Body', body, errs, `${p}.body`, `Sent exactly as typed. HEAD requests and ${[...BODYLESS].join('/')} replies have no body.`), h('div', { class: 'aw-row aw-gap8' }, jsonState, fmt),
             ] : [h('p', { class: 'aw-hint aw-m0 aw-wrap' }, sl.fault === 'timeout' ? 'Fetch rejects with a TimeoutError after the delay; XHR fires timeout. Nothing is sent.' : 'Fetch rejects with TypeError; XHR fires error. Nothing is sent.')]));
         }));
       };
@@ -490,7 +491,7 @@ export function createRulesUi(kit: Kit, deps: {
       const findIn = input(rep.find, (v) => { rep.find = v; t.replace = rep.find || rep.with ? rep : null; }, { mono: true, id: `aw-${p}-find` });
       const withIn = input(rep.with, (v) => { rep.with = v; t.replace = rep.find || rep.with ? rep : null; }, { mono: true, id: `aw-${p}-with` });
       const scope = select(rep.scope, [['all', 'Every occurrence'], ['first', 'First occurrence']], (v) => { rep.scope = v; }, { id: `aw-${p}-scope` });
-      const builder = patchBuilder(() => raw[stage], (v) => { raw[stage] = v; patchIn.value = v; }, `${p}-b`);
+      const builder = patchBuilder(() => raw[stage], (v) => { patchIn.value = v; patchIn.dispatchEvent(new Event('input')); }, `${p}-b`);
       const preview = stage === 'response' ? samplePreview(d, cur) : null;
       return section(stage === 'request' ? 'Request transform' : 'Response transform',
         h('p', { class: 'aw-hint aw-m0 aw-wrap' }, stage === 'request'
@@ -499,7 +500,7 @@ export function createRulesUi(kit: Kit, deps: {
         ...(stage === 'response' ? [field('Status', input(t.status ? String(t.status) : '', (v) => { t.status = v.trim() === '' ? 0 : Number(v); }, { mono: true, id: 'aw-response-status', placeholder: 'Blank keeps the original' }), errs, 'response.status')] : []),
         h('span', { class: 'aw-lbl' }, 'Set headers'), pairRows(t.setHeaders, `${stage} header`, errs, `${p}.setHeaders`),
         field('Remove headers', removeIn, errs, `${p}.removeHeaders`, 'Names separated by commas or spaces. Removal runs before set.'),
-        field('JSON Patch (RFC 6902, raw JSON)', patchIn, errs, `${p}.patch`, 'All operations apply to a copy, or none do. __proto__, constructor and prototype paths are refused.'),
+        withFormat(field('JSON Patch (RFC 6902, raw JSON)', patchIn, errs, `${p}.patch`, 'All operations apply to a copy, or none do. __proto__, constructor and prototype paths are refused.'), patchIn, `Format ${p} JSON Patch`),
         builder,
         h('div', { class: 'aw-g2' }, field('Find text', findIn, errs, `${p}.replace.find`), field('Replace with', withIn, errs, `${p}.replace.with`)),
         field('Replace scope', scope, errs, `${p}.replace.scope`, 'Exact text, no regular expressions. Runs after the patch.'),
@@ -573,7 +574,7 @@ export function createRulesUi(kit: Kit, deps: {
       switch (f.kind) {
         case 'status':
           params.push(h('div', { class: 'aw-g2' }, num('Status', 'fault.status', () => f.status, (n) => { f.status = n; })),
-            field('Body', textarea(f.body, (v) => { f.body = v; }, { id: 'aw-chaos-body', rows: 3 }), errs, 'fault.body', 'Optional; HTTP 4xx/5xx is an ordinary response, not a transport failure.'));
+            (() => { const ta = textarea(f.body, (v) => { f.body = v; }, { id: 'aw-chaos-body', rows: 3 }); return withFormat(field('Body', ta, errs, 'fault.body', 'Optional; HTTP 4xx/5xx is an ordinary response, not a transport failure.'), ta, 'Format fault body as JSON'); })());
           break;
         case 'latency': params.push(num('Delivery delay (ms)', 'fault.delayMs', () => f.delayMs, (n) => { f.delayMs = n; }, 'Added after the real response arrives.')); break;
         case 'random-latency': params.push(h('div', { class: 'aw-g2' }, num('Minimum (ms)', 'fault.minMs', () => f.minMs, (n) => { f.minMs = n; }), num('Maximum (ms)', 'fault.maxMs', () => f.maxMs, (n) => { f.maxMs = n; }))); break;
@@ -581,8 +582,8 @@ export function createRulesUi(kit: Kit, deps: {
         case 'malformed-json': params.push(field('Exact body text', textarea(f.text, (v) => { f.text = v; }, { id: 'aw-chaos-text', rows: 2 }), errs, 'fault.text', 'Delivered exactly; it is never repaired into valid JSON.')); break;
         case 'corrupt-json': {
           const ta = textarea(raw.corrupt, (v) => { raw.corrupt = v; }, { id: 'aw-chaos-patch', rows: 3 });
-          params.push(field('Field changes (JSON Patch)', ta, errs, 'fault.patch', 'All changes apply, or the original response is delivered with a reason.'),
-            patchBuilder(() => raw.corrupt, (v) => { raw.corrupt = v; ta.value = v; }, 'chaos-b'));
+          params.push(withFormat(field('Field changes (JSON Patch)', ta, errs, 'fault.patch', 'All changes apply, or the original response is delivered with a reason.'), ta, 'Format field changes JSON Patch'),
+            patchBuilder(() => raw.corrupt, (v) => { ta.value = v; ta.dispatchEvent(new Event('input')); }, 'chaos-b'));
           break;
         }
         case 'replay':

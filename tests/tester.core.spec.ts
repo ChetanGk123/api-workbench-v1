@@ -10,7 +10,7 @@ import { preflight } from '../src/tester/graph';
 import { prepare, type Sources, type Transport } from '../src/tester/once';
 import { checkCondition, startRun } from '../src/tester/run';
 import { canonical, importKey, signPrepared } from '../src/tester/sign';
-import { csvCell, emptyStat, p95, record, toCsv } from '../src/tester/stats';
+import { csvCell, emptyStat, p95, p99, record, toCsv } from '../src/tester/stats';
 
 const PAGE = 'http://page.test';
 const none: Sources = { cookie: () => undefined, localStorage: () => undefined, sessionStorage: () => undefined, meta: () => undefined };
@@ -406,6 +406,9 @@ test.describe('statistics and export (G17)', () => {
     expect(p95([5])).toBe(5);
     expect(p95(Array.from({ length: 20 }, (_, i) => i + 1))).toBe(19);
     expect(p95(Array.from({ length: 100 }, (_, i) => 100 - i))).toBe(95);
+    expect(p99([])).toBeNull();
+    expect(p99(Array.from({ length: 100 }, (_, i) => 100 - i))).toBe(99);
+    expect(p99(Array.from({ length: 20 }, (_, i) => i + 1))).toBe(20);
     const s = emptyStat();
     for (let i = 1; i <= 1005; i++) record(s, i);
     expect(s).toMatchObject({ n: 1005, min: 1, max: 1005, capped: true });

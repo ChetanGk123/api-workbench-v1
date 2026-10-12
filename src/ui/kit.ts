@@ -5,7 +5,7 @@ import type { Runtime } from '../net/runtime';
 import type { Transport } from '../tester/once';
 import { h, icon, type IconName } from './dom';
 
-export type Screen = 'home' | 'test' | 'mock' | 'intercept' | 'route' | 'chaos' | 'endpoints' | 'import' | 'settings' | 'detail' | 'pauses';
+export type Screen = 'home' | 'test' | 'mock' | 'intercept' | 'route' | 'chaos' | 'endpoints' | 'import' | 'record' | 'settings' | 'detail' | 'pauses';
 /** Where Back goes, and what to put back there: scroll positions and the focused row/control key. */
 export interface Ret { screen: Screen; scroll: number; listScroll: number; focus: string | null }
 export type Built = { nodes: Node[]; refresh?: () => void };
@@ -36,6 +36,8 @@ export interface Kit {
   closeForm(focus?: string | null): void;
   /** Leave the open form through the dirty-draft decision. */
   leaveForm(): void;
+  /** Run `next` after the open form's dirty-draft decision (immediately when nothing is unsaved). */
+  guard(next: () => void): void;
   runEndpoint(id: string): void;
   editEndpoint(id: string | null, extra?: (draft: unknown) => void): void;
   backButton(to: Screen, onClick: () => void): HTMLButtonElement;
@@ -49,7 +51,7 @@ export interface Kit {
   changed(): void;
 }
 
-export const NAME: Record<Screen, string> = { home: 'Home', test: 'Test', mock: 'Mock', intercept: 'Intercept', route: 'Route', chaos: 'Chaos', endpoints: 'Endpoints', import: 'Import', settings: 'Settings', detail: 'request', pauses: 'Paused requests' };
+export const NAME: Record<Screen, string> = { home: 'Home', test: 'Test', mock: 'Mock', intercept: 'Intercept', route: 'Route', chaos: 'Chaos', endpoints: 'Endpoints', import: 'Import', record: 'Record', settings: 'Settings', detail: 'request', pauses: 'Paused requests' };
 
 export const heading = (text: string, cls = 'aw-h') => h('h2', { class: cls, tabindex: '-1', 'data-focus': true }, text);
 export const tile = (name: IconName) => h('div', { class: 'aw-tile' }, icon(name));
@@ -100,6 +102,29 @@ export function toggle(label: string, on: boolean, onChange: (v: boolean) => voi
 export function fileButton(input: HTMLInputElement, text = 'Choose file') {
   input.classList.add('aw-sr');
   return h('label', { class: 'aw-btn aw-out aw-sm aw-filebtn' }, icon('folder', 'aw-i aw-i14'), text, input);
+}
+
+/** "Format JSON" for a textarea: shown only while its text is valid, not yet 2-space formatted JSON. Formatting
+ * dispatches `input`, so the field's own handler stores the new text. Code that sets the value must dispatch `input` too. */
+export function formatJson(ta: HTMLTextAreaElement, label: string): HTMLButtonElement {
+  const pretty = () => { try { return JSON.stringify(JSON.parse(ta.value), null, 2); } catch { return null; } };
+  const b = btn('Format JSON', () => {
+    const f = pretty();
+    if (f === null) return;
+    ta.value = f;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+  }, 'aw-btn aw-out aw-sm aw-fmt', { 'aria-label': label });
+  const sync = () => { const f = ta.value.trim() ? pretty() : null; b.hidden = f === null || f === ta.value; };
+  ta.addEventListener('input', sync);
+  sync();
+  return b;
+}
+
+/** A field with a Format JSON button appended (right-aligned, hidden until useful). */
+export function withFormat(fieldEl: HTMLElement, ta: HTMLTextAreaElement, label: string) {
+  fieldEl.append(formatJson(ta, label));
+  return fieldEl;
 }
 
 let seq = 0;

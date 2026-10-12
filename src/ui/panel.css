@@ -113,3 +113,68 @@
 .aw-profsel:has(.aw-profpick:disabled){cursor:default}
 .aw-profsel:has(.aw-profpick:disabled)>.aw-i{display:none}
 .aw-profsel:has(.aw-profpick:focus-visible){outline:2px solid var(--aw-zinc-400);outline-offset:1px}
+/* Dark, thin scrollbars (Chrome/Edge) for every scroller in the panel; native popups follow the dark scheme. */
+.aw-root,.aw-dialog{color-scheme:dark}
+.aw-root ::-webkit-scrollbar{width:10px;height:10px}
+.aw-root ::-webkit-scrollbar-track,.aw-root ::-webkit-scrollbar-corner{background:transparent}
+.aw-root ::-webkit-scrollbar-thumb{background:var(--aw-zinc-800);background-clip:padding-box;border:2px solid transparent;border-radius:999px}
+.aw-root ::-webkit-scrollbar-thumb:hover{background-color:var(--aw-zinc-700)}
+/* The theme's radio class .aw-rd (16px circle) collides with the red badge tone .aw-bd.aw-rd: keep badges badge-shaped. */
+.aw-bd.aw-rd{width:auto;height:20px;border-radius:5px;margin-top:0;justify-content:flex-start}
+/* Expanded run step: attempts and assertions indented under the summary with a guide line. */
+.aw-step>.aw-ops{gap:8px;margin:2px 0 8px 5px;padding-left:16px;border-left:1px solid var(--aw-zinc-800)}
+.aw-step>.aw-ops .aw-row{align-items:flex-start}
+.aw-step>.aw-ops .aw-wrap{min-width:0}
+/* Labelled field + action buttons: bottoms aligned, buttons as tall as the input, buttons wrap below when narrow. */
+.aw-fieldrow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px}
+.aw-fieldrow>.aw-grow{flex:1 1 200px;min-width:0}
+.aw-fieldrow .aw-btn{height:32px}
+.aw-fieldrow .aw-btn.aw-ic{width:32px}
+/* Narrow panel: the logo stands for the brand so the profile chip keeps room; its name ellipsizes. */
+.aw-profsel>span{display:block;min-width:0}
+@container (max-width:440px){.aw-tb .aw-brand{display:none}}
+/* Grids of fields: each field spans 4 shared row tracks (label, input, hint, error) via subgrid, so inputs in a row
+   line up even when one label wraps. Grids with any non-field child (buttons, checkboxes) keep plain auto rows. */
+.aw-g2:not(:has(>:not(.aw-fld)))>.aw-fld{display:grid;grid-row:span 4;grid-template-rows:subgrid;row-gap:0;align-content:start}
+.aw-g2:not(:has(>:not(.aw-fld)))>.aw-fld>*+*{margin-top:6px}
+.aw-g2:not(:has(>:not(.aw-fld)))>.aw-fld>.aw-lbl{align-self:end}
+.aw-g2:not(:has(>:not(.aw-fld))){row-gap:0}
+.aw-g2:not(:has(>:not(.aw-fld)))>.aw-fld:nth-child(n+3){margin-top:12px}
+/* Plan Run configuration: label column + control rows (Test.html "Load config"); stacked when the panel is narrow. */
+.aw-cfgrow{display:grid;grid-template-columns:112px minmax(0,1fr);column-gap:12px;row-gap:4px;align-items:center}
+.aw-cfgrow>:not(:first-child){grid-column:2}
+.aw-cfgrow>.aw-btn{justify-self:start}
+.aw-cfgrow .aw-numin{flex:0 0 110px;width:110px}
+.aw-cfgrow .aw-numin:disabled{opacity:.5}
+@container (max-width:380px){.aw-cfgrow{grid-template-columns:minmax(0,1fr)}.aw-cfgrow>:not(:first-child){grid-column:1}}
+/* Plans: collapsible Headers / Page context cards; one-line steps with options underneath. */
+.aw-disc>summary{padding:2px 0}
+.aw-disc[open]>summary{margin-bottom:10px}
+.aw-steprow{padding:4px 0;gap:0}
+.aw-steprow>.aw-row>.aw-tr{flex:1 1 0;min-width:0}
+.aw-steprow .aw-optn{padding:0 6px;gap:4px}
+.aw-stepopts{padding:8px 0 8px 12px;margin:4px 0 4px 6px;border-left:1px solid var(--aw-zinc-800)}
+/* Plan run bar: selection/blocked reason on the left, Stop / Run once / Run Load (widest) on the right. */
+.aw-runinfo{min-width:0;flex:0 1 auto;max-width:45%}
+.aw-runinfo>span:empty{display:none}
+/* Results: outcome and latency tones (counts muted at zero), big tile numbers with a small unit. */
+.aw-root .aw-t-ok{color:#4ade80}.aw-root .aw-t-warn{color:#fbbf24}.aw-root .aw-t-bad{color:#f87171}.aw-root .aw-t-mu{color:var(--aw-zinc-500)}
+.aw-tile2 .aw-big{font-size:24px}
+.aw-unit{font-size:12px;font-weight:500;margin-left:2px;color:var(--aw-zinc-400)}
+.aw-table th[scope=row] .aw-bd{min-width:0}
+.aw-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:10px}
+.aw-table th,.aw-table td{padding:5px 4px}
+.aw-table th[scope=row] .aw-tr{display:block;max-width:96px}
+/* Results action bar: sticks to the bottom of the scrolling body, full-bleed like the panel footer. */
+.aw-stickyfoot{position:sticky;bottom:-12px;z-index:1;margin:0 -12px -12px;padding:12px;background:var(--aw-zinc-940);border-top:1px solid var(--aw-zinc-800)}
+/* Endpoint editor expression bar: label, fixed-width picker, wrapping hint. */
+.aw-exprbar{flex-wrap:wrap}
+.aw-exprbar>.aw-lbl{white-space:nowrap}
+.aw-exprbar>.aw-select{flex:0 0 160px;width:160px}
+.aw-exprbar>.aw-grow{flex:1 1 180px}
+/* The scrolling body is a flex column: its children must keep their size and scroll, never get squeezed. */
+.aw-panel .aw-body>*{flex-shrink:0}
+.aw-fmt{align-self:flex-end;flex-shrink:0}
+/* Home quick actions: 3 or 4 equal cards (Record hides with the recorder module). */
+.aw-qas{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:10px}
+.aw-reclive{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto}

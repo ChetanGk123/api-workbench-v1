@@ -87,6 +87,40 @@ test.describe('mock sequences (G09)', () => {
     expect(await hits(page, '/api/slow-mock')).toBe(1);
   });
 
+  test('Format JSON appears only for valid, unformatted reply bodies and formats in place', async ({ page }) => {
+    await page.evaluate(source);
+    await newRule(page, 'Mock');
+    const body = page.locator('#aw-slot-0-body');
+    const format = page.getByRole('button', { name: 'Format reply 1 body as JSON' });
+    await expect(format).toBeHidden(); // default "{}" is already formatted
+    await body.fill('{"a":1,"b":[1,2]}');
+    await expect(format).toBeVisible();
+    await format.click();
+    await expect(body).toHaveValue('{\n  "a": 1,\n  "b": [\n    1,\n    2\n  ]\n}');
+    await expect(format).toBeHidden();
+    await body.fill('not json');
+    await expect(format).toBeHidden();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Discard' }).click();
+
+    // Same control on intercept JSON Patch and the endpoint JSON body.
+    await newRule(page, 'Intercept');
+    const patch = page.locator('#aw-request-patch');
+    await patch.fill('[{"op":"add","path":"/a","value":1}]');
+    await page.getByRole('button', { name: 'Format request JSON Patch' }).click();
+    await expect(patch).toHaveValue('[\n  {\n    "op": "add",\n    "path": "/a",\n    "value": 1\n  }\n]');
+    await expect(page.getByRole('button', { name: 'Format request JSON Patch' })).toBeHidden();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Discard' }).click();
+    await tab(page, 'Home');
+    await page.getByRole('button', { name: 'Endpoints', exact: true }).click();
+    await page.getByRole('button', { name: 'Add endpoint', exact: true }).click();
+    await page.locator('#aw-ep-bodykind').selectOption('json');
+    await page.locator('#aw-ep-body').fill('{"x":[1]}');
+    await page.getByRole('button', { name: 'Format request body as JSON' }).click();
+    await expect(page.locator('#aw-ep-body')).toHaveValue('{\n  "x": [\n    1\n  ]\n}');
+  });
+
   test('from endpoint: linked rule copies the sample and follows the endpoint path by ID', async ({ page }) => {
     await launch(page);
     await page.getByRole('button', { name: 'Endpoints', exact: true }).first().click();

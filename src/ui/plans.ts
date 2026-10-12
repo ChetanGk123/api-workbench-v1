@@ -1,11 +1,13 @@
 // Test → Plans: saved-plan picker (new/rename/copy/delete), setup/load/skip and order, Flow vs
 // Independent with bounded numbers, complex step fields (guard, read-only poll, idempotency,
-// assertions), live preflight, and Run plan once / Run Load. A plan is a draft until saved.
+// assertions), live preflight, and Run once / Run Load in the footer. A plan is a draft until saved.
 import { BOUNDS, newId, validateAggregate, type Aggregate, type CompareOp, type Condition, type Endpoint, type Plan, type Step } from '../data/schema';
+import { describeSource, readSource } from '../tester/expr';
 import { describeCond, preflight } from '../tester/graph';
-import { pageSources } from '../tester/once';
+import { mask, pageSources } from '../tester/once';
+import { headerRows } from './endpoints';
 import { h, icon } from './dom';
-import { btn, checkbox, Errors, field, heading, input, methodBadge, section, select, type Built, type Form, type Kit, type Ret } from './kit';
+import { btn, checkbox, toggle, Errors, field, heading, input, methodBadge, section, select, type Built, type Form, type Kit, type Ret } from './kit';
 
 const OPS: [CompareOp, string][] = [['eq', '='], ['ne', '≠'], ['lt', '<'], ['lte', '≤'], ['gt', '>'], ['gte', '≥'], ['in', 'in (a,b)'], ['exists', 'exists']];
 
@@ -15,7 +17,7 @@ export function newPlan(agg: Aggregate): Plan {
   return { id: newId('plan'), name: `Plan ${n}`, strategy: 'flow', mode: 'direct', steps: agg.endpoints.map((e) => ({ endpointId: e.id, phase: 'skip' })), iterations: 1, concurrency: 1, delayMs: 0, rampUp: false, rampStepMs: 1000, onFailure: 'continue', notify: 'panel' };
 }
 
-export function createPlansUi(kit: Kit, o: { keys(): ReadonlySet<string>; run(plan: Plan, once: boolean): void; running(planId: string): boolean; stop(planId: string): void }) {
+export function createPlansUi(kit: Kit, o: { keys(): ReadonlySet<string>; openContext(ret: Ret): void; run(plan: Plan, once: boolean): void; running(planId: string): boolean; stop(planId: string): void }) {
   const s = kit.session;
   let current: string | null = null;
 
@@ -29,27 +31,34 @@ export function createPlansUi(kit: Kit, o: { keys(): ReadonlySet<string>; run(pl
     draft.steps = draft.steps.filter((st) => agg.endpoints.some((e) => e.id === st.endpointId));
     current = draft.id;
     const base = isNew ? '' : JSON.stringify(normalize(pick!, agg));
+    // Profile global headers are edited here too and saved by Save plan (part of this draft's dirty state).
+    const globals = structuredClone(agg.profile.globalHeaders);
+    const globalsBase = JSON.stringify(globals);
+    const globalsDirty = () => JSON.stringify(globals) !== globalsBase;
     const errs = new Errors();
     let filter = '';
 
     const form: Form = {
       owner: 'test',
       ret,
-      dirty: () => JSON.stringify(normalize(draft, s.agg())) !== base,
+      dirty: () => JSON.stringify(normalize(draft, s.agg())) !== base || globalsDirty(),
       async save() {
         draft.name = draft.name.trim();
         const cur = s.agg();
-        const next = { ...cur, plans: [...cur.plans.filter((p) => p.id !== draft.id), structuredClone(draft)] };
+        const headers = globals.map((x) => ({ ...x, name: x.name.trim() }));
+        const next = { ...cur, profile: { ...cur.profile, globalHeaders: headers }, plans: [...cur.plans.filter((p) => p.id !== draft.id), structuredClone(draft)] };
         const v = validateAggregate(next);
         const i = next.plans.length - 1;
         if (!v.ok) {
-          const mine = v.errors.filter((d) => d.path.startsWith(`plans.${i}`)).map((d) => ({ path: d.path.slice(`plans.${i}.`.length), message: d.message }));
+          const mine = v.errors.flatMap((d) => d.path.startsWith(`plans.${i}`) ? [{ path: d.path.slice(`plans.${i}.`.length), message: d.message }]
+            : d.path.startsWith('profile.globalHeaders') ? [{ path: d.path.slice('profile.'.length), message: d.message }] : []);
           if (errs.show(mine.length ? mine : v.errors, kit.announce)) return false;
         }
         if (cur.plans.some((p) => p.id !== draft.id && p.name === draft.name)) { errs.show([{ path: 'name', message: 'Another plan has this name' }], kit.announce); return false; }
         const out = await s.edit((a) => {
           const j = a.plans.findIndex((p) => p.id === draft.id);
           if (j >= 0) a.plans[j] = structuredClone(draft); else a.plans.push(structuredClone(draft));
+          if (globalsDirty()) a.profile.globalHeaders = headers;
         });
         if (out) { errs.show(out, kit.announce); return false; }
         kit.announce(`Plan ${draft.name} saved.`);
@@ -62,12 +71,16 @@ export function createPlansUi(kit: Kit, o: { keys(): ReadonlySet<string>; run(pl
       errs.clear();
       const agg = s.agg();
       const pfEl = h('div', { class: 'aw-col aw-gap6', id: 'aw-pf', 'aria-live': 'polite' });
-      const actions = h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' });
-      const conc = h('span', { class: 'aw-lbl' });
+      // Footer run bar (reason/selection, Save when unsaved, Stop, Run once, Run Load), refreshed by update().
+      const why = h('span', { class: 'aw-xs aw-mu aw-wrap', id: 'aw-run-why' });
+      const picked = h('span', { class: 'aw-xs aw-mu', id: 'aw-run-picked' });
+      const runBtns = h('div', { class: 'aw-row aw-gap6 aw-grow aw-end' });
+      const saveBtn = btn([icon('save', 'aw-i aw-i14'), 'Save'], async () => { if (await form.save()) open(ret, draft.id); }, 'aw-btn aw-pri', { id: 'aw-plan-save' });
+      const conc = h('span', {});
       const update = () => {
         const pf = preflight({ ...s.agg(), plans: [draft] }, draft, { once: false, pageOrigin: kit.rt.origin, sources: pageSources(), keys: o.keys() });
         const once = preflight({ ...s.agg(), plans: [draft] }, draft, { once: true, pageOrigin: kit.rt.origin, sources: pageSources(), keys: o.keys() });
-        conc.textContent = draft.strategy === 'flow' ? 'Simultaneous iterations' : 'Simultaneous requests';
+        conc.textContent = draft.strategy === 'flow' ? 'Concurrency is the number of simultaneous iterations, not parallel requests inside one iteration.' : 'Concurrency is the number of simultaneous requests across the endpoint jobs.';
         const c = pf.counts;
         pfEl.replaceChildren(
           h('div', { class: 'aw-xs aw-wrap', id: 'aw-pf-counts' }, `Setup ${c.setup} · load ${pf.load.length} step(s) × ${draft.iterations} = ${c.load} jobs · run once = ${once.counts.primary} request(s) · Load = ${c.primary} primary, up to ${c.worst} with ${c.poll} poll, ${c.refresh} refresh, ${c.retry} read-only retry`),
@@ -79,32 +92,42 @@ export function createPlansUi(kit: Kit, o: { keys(): ReadonlySet<string>; run(pl
         const dirty = form.dirty();
         const blocked = dirty ? 'Save the plan before running it' : !pf.ok ? 'Fix the preflight errors first' : '';
         const busy = o.running(draft.id);
-        const one = btn([icon('play', 'aw-i aw-i14'), 'Run plan once'], () => o.run(structuredClone(draft), true), 'aw-btn aw-out aw-sm', { id: 'aw-run-once', title: blocked || 'One pass of the selected steps; Load settings are not changed' });
-        const load = btn([icon('play', 'aw-i aw-i14'), 'Run Load'], () => o.run(structuredClone(draft), false), 'aw-btn aw-pri aw-sm', { id: 'aw-run-load', title: blocked || `${draft.iterations} repetition(s)` });
+        const one = btn('Run once', () => o.run(structuredClone(draft), true), 'aw-btn aw-out', { id: 'aw-run-once', title: blocked || 'One pass of the selected steps; Load settings are not changed' });
+        // While unsaved, Save is the highlighted (primary) action and Run Load is outlined.
+        const load = btn([icon('play', 'aw-i aw-i14'), 'Run Load'], () => o.run(structuredClone(draft), false), dirty ? 'aw-btn aw-out' : 'aw-btn aw-pri', { id: 'aw-run-load', title: blocked || `${draft.iterations} repetition(s)` });
         one.disabled = load.disabled = !!blocked || busy || !once.ok;
         if (!once.ok && !blocked) one.title = once.errors[0] ?? '';
-        actions.replaceChildren(h('span', { class: 'aw-xs aw-mu aw-grow aw-wrap', id: 'aw-run-why' }, busy ? 'This plan is running.' : blocked), ...(busy ? [btn([icon('stop', 'aw-i aw-i14'), 'Stop'], () => o.stop(draft.id), 'aw-btn aw-out aw-sm')] : []), one, load);
+        load.classList.add('aw-grow');
+        why.textContent = busy ? 'This plan is running.' : blocked;
+        picked.textContent = why.textContent ? '' : `${draft.steps.filter((st) => st.phase !== 'skip').length} selected · ${draft.iterations}×${draft.concurrency}`;
+        runBtns.replaceChildren(...(dirty ? [saveBtn] : []), ...(busy ? [btn([icon('stop', 'aw-i aw-i14'), 'Stop'], () => o.stop(draft.id), 'aw-btn aw-out')] : []), one, load);
       };
 
       // Plan picker and identity.
       const picker = select<string>(draft.id, [...agg.plans.map((p): [string, string] => [p.id, p.name]), ...(agg.plans.some((p) => p.id === draft.id) ? [] : [[draft.id, `${draft.name} (new, unsaved)`] as [string, string]])], (v) => switchTo(v), { id: 'aw-plan-pick', label: 'Saved plan' });
       const nameIn = input(draft.name, (v) => { draft.name = v; update(); }, { id: 'aw-plan-name' });
-      const num = (label: string, key: 'iterations' | 'concurrency' | 'delayMs' | 'rampStepMs', min: number, max: number, hint?: string) => {
-        const el = input(String(draft[key]), () => {}, { id: `aw-plan-${key}`, type: 'number' });
+      // Run configuration rows: label column, control (+ unit), error under the control.
+      const cfgRow = (label: string | Node, control: HTMLElement, extra: Node[] = [], key?: string) => {
+        const err = h('span', { class: 'aw-err', role: 'alert', id: `${control.id}-err` });
+        control.setAttribute('aria-describedby', err.id);
+        if (key) errs.slot(key, err, control);
+        return h('div', { class: 'aw-cfgrow' }, typeof label === 'string' ? h('label', { class: 'aw-lbl', for: control.id }, label) : label,
+          h('div', { class: 'aw-row aw-gap8' }, control, ...extra), err);
+      };
+      const numRow = (label: string | Node, key: 'iterations' | 'concurrency' | 'delayMs' | 'rampStepMs', min: number, max: number, unit?: string, aria?: string) => {
+        const el = input(String(draft[key]), () => {}, { id: `aw-plan-${key}`, type: 'number', mono: true, ...(aria ? { label: aria } : {}) });
         el.min = String(min); el.max = String(max);
-        const err = h('span', { class: 'aw-err', role: 'alert' });
+        el.classList.add('aw-numin');
+        const row = cfgRow(label, el, unit ? [h('span', { class: 'aw-xs aw-mu' }, unit)] : [], key);
+        const err = row.querySelector('.aw-err')!;
         el.addEventListener('input', () => {
           const n = Number(el.value);
           if (el.value.trim() === '' || !Number.isSafeInteger(n) || n < min || n > max) { err.textContent = `Whole number ${min}–${max}; still using ${draft[key]}`; el.setAttribute('aria-invalid', 'true'); }
           else { draft[key] = n; err.textContent = ''; el.removeAttribute('aria-invalid'); }
           update();
         });
-        const f = field(label, el, errs, key, hint);
-        f.append(err);
-        return f;
+        return row;
       };
-      const concField = num('Concurrency', 'concurrency', 1, BOUNDS.concurrency);
-      concField.querySelector('label')!.replaceChildren(conc);
       const notifyBtn = btn('Allow browser notifications', async () => {
         try { const r = await Notification.requestPermission(); kit.announce(`Browser notifications: ${r}.`); } catch { kit.announce('This browser refused the notification permission request.'); }
       }, 'aw-btn aw-gh aw-sm');
@@ -146,50 +169,77 @@ export function createPlansUi(kit: Kit, o: { keys(): ReadonlySet<string>; run(pl
         };
         const phase = select(st.phase, [['setup', 'Setup'], ['load', 'Load'], ['skip', 'Skip']], (v) => { st.phase = v; redraw(); }, { label: `Phase for ${e.name}`, id: `aw-phase-${e.alias}` });
         phase.classList.add('aw-sm');
-        const opts = h('details', { class: 'aw-col aw-gap8' }, h('summary', { class: 'aw-xs' }, `Options${optionSummary(st, e)}`), ...stepOptions(st, e, update));
-        opts.open = openOpts.has(e.id);
-        opts.addEventListener('toggle', () => { if (opts.open) openOpts.add(e.id); else openOpts.delete(e.id); });
+        // One line per step; options (guard, poll, idempotency, assertions) expand underneath.
+        const opts = h('div', { class: 'aw-col aw-gap8 aw-stepopts', hidden: !openOpts.has(e.id) }, ...stepOptions(st, e, update));
+        const n = optionCount(st);
+        const optsBtn = btn([icon('sliders', 'aw-i aw-i14'), n ? String(n) : ''], () => {
+          opts.hidden = !opts.hidden;
+          optsBtn.setAttribute('aria-expanded', String(!opts.hidden));
+          if (opts.hidden) openOpts.delete(e.id); else openOpts.add(e.id);
+        }, `aw-btn aw-gh aw-sm${n ? ' aw-optn' : ' aw-ic'}`, { 'aria-label': `Options for ${e.name}${optionSummary(st, e)}`, 'aria-expanded': String(!opts.hidden), title: `Options${optionSummary(st, e)}` });
+        if (st.phase === 'skip') optsBtn.style.visibility = 'hidden'; // keeps the columns aligned
         return h('div', { class: 'aw-col aw-steprow' },
           h('div', { class: 'aw-row aw-gap6' }, methodBadge(e.request.method),
-            h('div', { class: 'aw-grow aw-col' }, h('span', { class: 'aw-wrap' }, e.name), h('span', { class: 'aw-xs aw-mu aw-mono' }, e.alias)),
-            phase,
+            h('span', { class: 'aw-grow aw-tr', title: `${e.name} · ${e.alias}` }, e.name, ' ', h('span', { class: 'aw-xs aw-mu aw-mono' }, e.alias)),
+            phase, optsBtn,
             btn('↑', () => move(-1), 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Move ${e.name} up`, 'data-key': `up-${e.alias}`, disabled: i === 0 }),
             btn('↓', () => move(1), 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Move ${e.name} down`, 'data-key': `down-${e.alias}`, disabled: i === draft.steps.length - 1 })),
           st.phase === 'skip' ? null : opts);
       }
 
       drawSteps();
-      const strategy = select(draft.strategy, [['flow', 'Flow — steps in order inside each iteration'], ['independent', 'Independent — separate jobs per endpoint']], (v) => { draft.strategy = v; update(); }, { id: 'aw-plan-strategy' });
-      const mode = select(draft.mode, [['direct', 'Direct (bypass active rules)'], ['rules', 'Apply rules']], (v) => { draft.mode = v; update(); }, { id: 'aw-plan-mode' });
-      const fail = select(draft.onFailure, [['continue', 'Continue (dependents of a failure are skipped)'], ['stop', 'Stop the run at the first failure']], (v) => { draft.onFailure = v; update(); }, { id: 'aw-plan-fail' });
-      const notify = select(draft.notify, [['panel', 'In-panel notice'], ['browser', 'Browser notification (asks permission)'], ['off', 'Off']], (v) => { draft.notify = v; notifyBtn.hidden = v !== 'browser' || typeof Notification === 'undefined' || Notification.permission === 'granted'; update(); }, { id: 'aw-plan-notify' });
-      const ramp = h('div', { class: 'aw-row aw-gap8' }, h('span', { class: 'aw-chk' }, checkbox('Ramp-up', draft.rampUp, (v) => { draft.rampUp = v; update(); }), 'Ramp-up: admit one more worker every'), num('Ramp step ms', 'rampStepMs', 0, BOUNDS.delayMs));
+      const strategy = select(draft.strategy, [['flow', 'Flow — ordered sequence per iteration'], ['independent', 'Independent — one job per endpoint']], (v) => { draft.strategy = v; update(); }, { id: 'aw-plan-strategy' });
+      const mode = select(draft.mode, [['direct', 'Direct — bypass active rules'], ['rules', 'Apply active rules']], (v) => { draft.mode = v; update(); }, { id: 'aw-plan-mode' });
+      const fail = select(draft.onFailure, [['continue', 'Continue unrelated steps'], ['stop', 'Stop at the first failure']], (v) => { draft.onFailure = v; update(); }, { id: 'aw-plan-fail' });
+      const notify = select(draft.notify, [['panel', 'In-panel notice'], ['browser', 'Browser notification'], ['off', 'Off']], (v) => { draft.notify = v; notifyBtn.hidden = v !== 'browser' || typeof Notification === 'undefined' || Notification.permission === 'granted'; update(); }, { id: 'aw-plan-notify' });
+      let rampIn: HTMLInputElement | null = null;
+      const ramp = numRow(h('span', { class: 'aw-row aw-gap8' }, toggle('Ramp-up', draft.rampUp, (v) => { draft.rampUp = v; rampIn!.disabled = !v; update(); }), h('span', { class: 'aw-lbl' }, 'Ramp-up')),
+        'rampStepMs', 0, BOUNDS.delayMs, 'ms per added worker', 'Ramp step ms');
+      rampIn = ramp.querySelector('input')!;
+      rampIn.disabled = !draft.rampUp;
+      const notifyRow = cfgRow('Notify', notify, [], 'notify');
+      notifyRow.append(notifyBtn);
 
-      kit.foot.replaceChildren(
-        btn([icon('save', 'aw-i aw-i14'), 'Save plan'], async () => { if (await form.save()) open(ret, draft.id); }, 'aw-btn aw-pri aw-grow', { id: 'aw-plan-save' }),
-        btn('Close', () => kit.leaveForm(), 'aw-btn aw-out aw-grow'));
+      kit.foot.replaceChildren(h('div', { class: 'aw-col aw-runinfo' }, why, picked), runBtns);
       kit.foot.hidden = false;
       return {
         nodes: [
           h('div', { class: 'aw-row' }, kit.backButton(ret.screen, () => kit.leaveForm()), heading('Plans')),
           errs.summary,
-          h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },
+          h('div', { class: 'aw-fieldrow' },
             h('div', { class: 'aw-grow' }, field('Saved plan', picker)),
-            btn([icon('plus', 'aw-i aw-i12'), 'New plan'], () => switchTo('__new'), 'aw-btn aw-out aw-sm'),
-            btn('Save copy', copy, 'aw-btn aw-out aw-sm'),
-            btn([icon('trash', 'aw-i aw-i12')], remove, 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Delete plan ${draft.name}` })),
+            h('div', { class: 'aw-row aw-gap6' }, // wraps as one group under the picker when narrow
+              btn([icon('plus', 'aw-i aw-i12'), 'New plan'], () => switchTo('__new'), 'aw-btn aw-out aw-sm'),
+              btn('Save copy', copy, 'aw-btn aw-out aw-sm'),
+              btn([icon('trash', 'aw-i aw-i12')], remove, 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Delete plan ${draft.name}` }))),
           field('Plan name', nameIn, errs, 'name'),
           section('Run configuration',
-            h('div', { class: 'aw-g2' }, field('Strategy', strategy, errs, 'strategy'), field('Send mode', mode, errs, 'mode')),
-            h('div', { class: 'aw-g2' }, num('Iterations (Run Load)', 'iterations', 1, BOUNDS.iterations, 'Run plan once always runs one pass and leaves this unchanged.'), concField),
-            h('div', { class: 'aw-g2' }, num('Delay after each iteration/job, ms', 'delayMs', 0, BOUNDS.delayMs), field('On failure', fail, errs, 'onFailure')),
+            cfgRow('Strategy', strategy, [], 'strategy'),
+            numRow('Iterations', 'iterations', 1, BOUNDS.iterations, 'for Run Load'),
+            numRow('Concurrency', 'concurrency', 1, BOUNDS.concurrency),
+            numRow('Delay', 'delayMs', 0, BOUNDS.delayMs, 'ms after each iteration/job'),
+            h('div', { class: 'aw-sep' }),
             ramp,
-            h('div', { class: 'aw-row aw-gap8 aw-wrapbtns' }, h('div', { class: 'aw-grow' }, field('When the run ends', notify, errs, 'notify')), notifyBtn)),
+            h('div', { class: 'aw-sep' }),
+            cfgRow('Mode', mode, [], 'mode'),
+            cfgRow('On failure', fail, [], 'onFailure'),
+            notifyRow,
+            h('p', { class: 'aw-hint aw-wrap' }, conc, ' A failed step skips the steps that depend on it. Run once always sends one pass; Iterations applies to Run Load only.')),
+          disclosure('aw-plan-headers', `Headers (${globals.length})`,
+            h('p', { class: 'aw-hint aw-wrap' }, `Global · sent with every request in profile ${agg.profile.name}, saved by Save plan. An endpoint's own headers are edited on Endpoints.`),
+            headerRows(kit, globals, errs, 'globalHeaders', false, update)),
+          disclosure('aw-plan-context', `Page context (${agg.bindings.length} binding${agg.bindings.length === 1 ? '' : 's'})`,
+            h('p', { class: 'aw-hint aw-wrap' }, 'Bindings read page values (cookies, storage, meta tags, form fields, globals) at dispatch. Use them as {{$context("name")}}.'),
+            ...(agg.bindings.length ? [h('ul', { class: 'aw-ops' }, ...agg.bindings.map((b) => {
+              const v = readSource(pageSources(), b.source);
+              return h('li', { class: 'aw-row aw-gap6 aw-xs' }, h('span', { class: 'aw-mono' }, b.name), h('span', { class: 'aw-grow aw-mu aw-wrap' }, describeSource(b.source)),
+                v === undefined ? h('span', { class: 'aw-bd aw-am' }, 'missing') : h('span', { class: 'aw-bd aw-gr', title: 'Masked; the value is read again at dispatch' }, `available ${mask(v)}`));
+            }))] : [h('div', { class: 'aw-empty' }, 'No bindings yet. Scan the page and add what a request needs.')]),
+            h('div', { class: 'aw-row' }, btn('Scan page & edit bindings', () => kit.guard(() => o.openContext(ret)), 'aw-btn aw-out aw-sm', { 'aria-label': 'Open Auth & context to scan the page and edit bindings' }))),
           section('Steps',
             h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' }, filterIn, btn('Load all', () => bulk('load')), btn('Skip all', () => bulk('skip'))),
             scope, stepsEl),
           section('Preflight', pfEl),
-          actions,
         ],
         refresh: update,
       };
@@ -239,6 +289,14 @@ export function createPlansUi(kit: Kit, o: { keys(): ReadonlySet<string>; run(pl
   }
 
   const openOpts = new Set<string>();
+  /** Collapsible card section; its open state survives screen rebuilds. */
+  const openDisc = new Set<string>();
+  function disclosure(key: string, title: string, ...kids: Node[]) {
+    const d = h('details', { class: 'aw-card aw-cp aw-disc', 'data-key': key }, h('summary', { class: 'aw-h aw-h13' }, title), h('div', { class: 'aw-col aw-gap10' }, ...kids));
+    d.open = openDisc.has(key);
+    d.addEventListener('toggle', () => { if (d.open) openDisc.add(key); else openDisc.delete(key); });
+    return d;
+  }
 
   function stepOptions(st: Step, e: Endpoint, changed: () => void): Node[] {
     const out: Node[] = [];
@@ -294,6 +352,10 @@ export function createPlansUi(kit: Kit, o: { keys(): ReadonlySet<string>; run(pl
   }
 
   return { open };
+}
+
+function optionCount(st: Step): number {
+  return [st.guard?.ref, st.poll, st.idempotency, st.assertions?.length].filter(Boolean).length;
 }
 
 function optionSummary(st: Step, e: Endpoint): string {

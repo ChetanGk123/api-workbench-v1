@@ -47,6 +47,7 @@ export function createTestUi(kit: Kit) {
   const contextUi = createContextUi(kit, auth);
   const plansUi = createPlansUi(kit, {
     keys: () => new Set(auth.keys.keys()),
+    openContext: (ret) => contextUi.open(ret),
     run(plan: Plan, once: boolean) {
       if (runs.running().length) { kit.announce('Another run is in progress. Stop it first.'); return; }
       const hd = runs.start(plan, once);

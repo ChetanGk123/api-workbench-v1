@@ -5,7 +5,7 @@ import { runStore } from '../data/store';
 import type { AuthCoordinator } from '../tester/auth';
 import { pageSources } from '../tester/once';
 import { OUTCOMES, startRun, type ReqOutcome, type RunHandle, type RunSummary, type StepRow } from '../tester/run';
-import { mean, overall, p95, TIMING, toCsv, toJson, type Stat } from '../tester/stats';
+import { mean, overall, p95, p99, TIMING, toCsv, toJson, type Stat } from '../tester/stats';
 import { h, icon } from './dom';
 import { btn, download, methodBadge, section, type Kit } from './kit';
 
@@ -17,6 +17,11 @@ const LABEL: Record<ReqOutcome, string> = {
 };
 const TONE: Record<ReqOutcome, string> = { passed: 'aw-gr', 'failed-check': 'aw-rd', 'network-error': 'aw-rd', timeout: 'aw-rd', aborted: 'aw-am', 'skipped-dependency': 'aw-am', 'skipped-condition': '', 'blocked-before-dispatch': 'aw-am' };
 const ms = (n: number | null) => (n === null ? '—' : `${Math.round(n)} ms`);
+/** Latency colour: green under 300 ms, amber to 1000 ms, red above. */
+const speed = (n: number | null) => (n === null ? 'aw-t-mu' : n < 300 ? 'aw-t-ok' : n < 1000 ? 'aw-t-warn' : 'aw-t-bad');
+/** Count colour: zero is muted, otherwise the outcome's tone. */
+const tally = (n: number, tone: string) => (n ? tone : 'aw-t-mu');
+const OUTCOME_TONE: Record<ReqOutcome, string> = { passed: 'aw-t-ok', 'failed-check': 'aw-t-bad', 'network-error': 'aw-t-bad', timeout: 'aw-t-bad', aborted: 'aw-t-warn', 'skipped-dependency': 'aw-t-warn', 'skipped-condition': 'aw-t-mu', 'blocked-before-dispatch': 'aw-t-warn' };
 
 export function createRuns(kit: Kit, auth: AuthCoordinator, onChange: () => void) {
   const s = kit.session;
@@ -132,8 +137,11 @@ export function resultsNodes(kit: Kit, runs: Runs, selected: () => string | null
     const r = e.summary;
     const live = !!e.handle && !r.endedAt;
     const net = overall(r, 'network'), syn = overall(r, 'synthetic');
+    const tile = (label: string, value: Node, extra: Record<string, string> = {}) => h('div', { class: 'aw-card aw-cp aw-col aw-gap4 aw-tile2', ...extra }, h('span', { class: 'aw-xs aw-mu' }, label), value);
+    const latency = (label: string, v: number | null) => tile(label, h('span', { class: `aw-big ${speed(v)}` }, v === null ? '—' : String(Math.round(v)), h('span', { class: 'aw-unit' }, 'ms')));
     const tiles = OUTCOMES.filter((o) => o === 'passed' || o === 'failed-check' || r.counts[o]).map((o) =>
-      h('div', { class: 'aw-card aw-cp aw-col aw-tile2' }, h('span', { class: 'aw-xs aw-mu' }, LABEL[o]), h('span', { class: 'aw-h aw-num', 'data-outcome': o }, String(r.counts[o]))));
+      tile(LABEL[o], h('span', { class: `aw-big ${o === 'passed' || o === 'failed-check' ? OUTCOME_TONE[o] : tally(r.counts[o], OUTCOME_TONE[o])}`, 'data-outcome': o }, String(r.counts[o]))));
+    const latencies = [latency('Avg latency', mean(net)), latency('P95 latency', p95(net.samples)), latency('P99 latency', p99(net.samples))];
     const head = h('div', { class: 'aw-col aw-gap6' },
       h('div', { class: 'aw-row aw-gap8 aw-wrapbtns' }, h('span', { class: `aw-bd ${r.state === 'completed' ? 'aw-gr' : r.state === 'running' ? 'aw-bl' : 'aw-am'}`, id: 'aw-run-state' }, r.state),
         h('strong', { class: 'aw-grow aw-wrap' }, `${r.planName} · ${r.kind === 'once' ? 'Run plan once (one pass)' : `Load · ${r.strategy === 'flow' ? 'Flow' : 'Independent'} · ${r.iterations}×${r.concurrency}`} · ${r.mode === 'direct' ? 'Direct' : 'Apply rules'}`),
@@ -147,15 +155,21 @@ export function resultsNodes(kit: Kit, runs: Runs, selected: () => string | null
       ...r.notes.map((n) => h('div', { class: 'aw-alert aw-wrap' }, n)),
       ...(r.state === 'failed-preflight' ? r.preflight.errors.map((x) => h('div', { class: 'aw-err aw-wrap' }, x)) : []));
     const table = h('table', { class: 'aw-table', 'aria-label': 'Per-endpoint results' },
-      h('thead', {}, h('tr', {}, ...['Endpoint', 'Pass', 'Fail', 'Not sent', 'Errors', 'Mean', 'Min', 'Max', 'P95'].map((t) => h('th', { scope: 'col' }, t)))),
+      h('thead', {}, h('tr', {}, ...['Endpoint', 'Pass', 'Fail', 'Skip', 'Avg', 'Min', 'Max', 'P95', 'P99'].map((t) => h('th', { scope: 'col' }, t)))),
       h('tbody', {}, ...r.endpoints.map((x) => {
         const notSent = x.counts['skipped-dependency'] + x.counts['skipped-condition'] + x.counts['blocked-before-dispatch'];
         const errs = x.counts['network-error'] + x.counts.timeout + x.counts.aborted;
         const nt = x.network;
+        const n = (v: number) => String(v);
+        const t = (v: number | null, title?: string) => h('td', { class: speed(v), title }, v === null ? '—' : String(Math.round(v)));
+        const kept = `${nt.samples.length} retained sample(s)${nt.capped ? '; capped' : ''}`;
         return h('tr', { 'data-endpoint': x.alias },
-          h('th', { scope: 'row' }, methodBadge(x.method), ' ', x.name, h('span', { class: 'aw-xs aw-mu' }, ` ${x.alias}`)),
-          h('td', {}, String(x.counts.passed)), h('td', {}, String(x.counts['failed-check'])), h('td', {}, String(notSent)), h('td', {}, String(errs)),
-          h('td', {}, ms(mean(nt))), h('td', {}, ms(nt.min)), h('td', {}, ms(nt.max)), h('td', { title: `${nt.samples.length} retained sample(s)${nt.capped ? '; capped' : ''}` }, nt.n ? `${ms(p95(nt.samples))} (n=${nt.samples.length}${nt.capped ? ', capped' : ''})` : '—'));
+          h('th', { scope: 'row', title: `${x.name} · ${x.alias}` }, h('span', { class: 'aw-row aw-gap8' }, methodBadge(x.method), h('span', { class: 'aw-mono aw-tr' }, x.alias))),
+          // Fail = failed checks + network errors/timeouts/aborts (split on hover); Skip = not sent.
+          h('td', { class: tally(x.counts.passed, 'aw-t-ok') }, n(x.counts.passed)),
+          h('td', { class: tally(x.counts['failed-check'] + errs, 'aw-t-bad'), title: `${x.counts['failed-check']} failed check · ${errs} network error, timeout or aborted` }, n(x.counts['failed-check'] + errs)),
+          h('td', { class: tally(notSent, 'aw-t-warn'), title: 'Not sent: skipped (dependency or condition) or blocked before dispatch' }, n(notSent)),
+          t(mean(nt)), t(nt.min), t(nt.max), t(p95(nt.samples), kept), t(p99(nt.samples), kept));
       })));
     const steps = r.steps.slice(-200).reverse();
     const stepList = h('div', { class: 'aw-col aw-gap4' }, ...steps.map((st) => stepNode(r, st)),
@@ -167,24 +181,26 @@ export function resultsNodes(kit: Kit, runs: Runs, selected: () => string | null
         h('pre', { class: 'aw-code aw-pre', tabindex: '0' }, smp.body.slice(0, 4096) || '(empty)'),
         ep ? btn('Save sample', () => saveSamples(r, [smp.endpointId])) : h('span', { class: 'aw-hint' }, 'Endpoint no longer exists; this sample cannot be saved.'));
     });
-    const exportRow = h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },
+    // Pinned to the bottom of the scrolling panel (sticky), like the old tool's action bar.
+    const exportRow = h('div', { class: 'aw-row aw-gap6 aw-stickyfoot' },
       btn([icon('save', 'aw-i aw-i12'), 'JSON'], () => { download(`api-workbench-run-${r.id}.json`, toJson(r)); kit.announce('JSON download requested. The browser may still ask where to save it; check your downloads.'); }, 'aw-btn aw-out aw-sm', { 'data-key': 'run-json' }),
       btn([icon('save', 'aw-i aw-i12'), 'CSV'], () => { download(`api-workbench-run-${r.id}.csv`, toCsv(r), 'text/csv'); kit.announce('CSV download requested. The browser may still ask where to save it; check your downloads.'); }, 'aw-btn aw-out aw-sm', { 'data-key': 'run-csv' }),
       btn('Copy JSON', async () => { try { await navigator.clipboard.writeText(toJson(r)); kit.announce('Run JSON copied.'); } catch (x) { kit.announce(`Copy refused by the browser: ${(x as Error).message}`); } }, 'aw-btn aw-gh aw-sm'),
-      h('div', { class: 'aw-grow' }),
-      !live && r.state !== 'failed-preflight' ? btn([icon('play', 'aw-i aw-i12'), 'Run again'], () => runAgain(e), 'aw-btn aw-pri aw-sm', { 'data-key': 'run-again' }) : null);
+      !live && r.state !== 'failed-preflight' ? btn([icon('play', 'aw-i aw-i14'), 'Run again'], () => runAgain(e), 'aw-btn aw-pri aw-grow', { 'data-key': 'run-again' }) : h('div', { class: 'aw-grow' }));
     return [
       head,
-      h('div', { class: 'aw-g4' }, ...tiles),
+      h('div', { class: 'aw-tiles' }, ...tiles),
+      h('div', { class: 'aw-g3' }, ...latencies),
       section('Timings',
         h('div', { class: 'aw-xs aw-wrap', id: 'aw-run-network' }, `Network: ${statText(net)}`),
         h('div', { class: 'aw-xs aw-wrap' }, `Mock/synthetic (not server latency): ${statText(syn)}`),
         h('details', {}, h('summary', { class: 'aw-xs' }, 'Timing definitions'), ...Object.values(TIMING).map((t) => h('p', { class: 'aw-hint aw-wrap' }, t)))),
-      section('Per-endpoint breakdown', h('div', { class: 'aw-scrollx' }, table)),
+      section('Per-endpoint breakdown', h('div', { class: 'aw-scrollx' }, table),
+        h('p', { class: 'aw-hint aw-wrap' }, 'Fail includes network errors and timeouts; Skip is not sent. Network timings in milliseconds: green under 300, amber to 1000, red above. P95 / P99: 95 / 99 of every 100 retained samples were at least that fast. Hover a row for the endpoint name.')),
       section(`Steps (${r.steps.length + r.stepsDropped})`, stepList),
       ...(samples.length ? [section('Last responses', ...samples, btn('Save all samples', () => saveSamples(r, r.samples.map((x) => x.endpointId))))] : []),
-      exportRow,
       h('p', { class: 'aw-hint aw-wrap' }, 'Browser-local test from one tab and one cookie session. These numbers are not server capacity evidence.'),
+      exportRow,
     ];
   }
 
@@ -193,14 +209,20 @@ export function resultsNodes(kit: Kit, runs: Runs, selected: () => string | null
     const where = st.phase === 'setup' ? 'setup' : st.iteration !== undefined ? `iteration ${st.iteration}` : st.job !== undefined ? `job ${st.job}` : 'pass';
     const attempts = r.attempts.filter((a) => st.attempts.includes(a.id));
     const d = h('details', { 'data-step': key, class: 'aw-step' },
-      h('summary', { class: 'aw-row aw-gap6 aw-xs' }, h('span', { class: `aw-bd ${TONE[st.outcome]}` }, st.outcome), h('span', { class: 'aw-mono' }, st.alias), h('span', { class: 'aw-mu' }, where), h('span', { class: 'aw-grow aw-tr' }, st.detail)),
-      h('ul', { class: 'aw-ops' }, ...attempts.map((a) => h('li', { class: 'aw-row aw-xs aw-wrap' },
-        h('span', { class: 'aw-bd' }, `${a.kind} ${a.n}`), h('span', { class: `aw-bd ${TONE[a.outcome]}` }, a.status !== undefined ? `HTTP ${a.status}` : a.outcome),
-        h('span', { class: 'aw-grow aw-wrap' }, [a.method, a.url, a.totalMs !== undefined ? `${a.totalMs} ms` : '', a.queueMs ? `queued ${a.queueMs} ms` : '', a.provider !== 'network' ? `${a.provider} reply` : '',
-          a.idempotencyKey ? `Idempotency key ${a.idempotencyKey}` : '', a.signed ? 'signed at dispatch' : '', a.recordId ? `request #${a.recordId}` : '', a.reason ?? ''].filter(Boolean).join(' · ')),
-        ...a.checks.filter((c) => c.state !== 'passed').map((c) => h('span', { class: 'aw-xs aw-mu aw-wrap' }, `${c.text}: ${c.state} (${c.detail})`)))),
+      h('summary', { class: 'aw-row aw-gap6 aw-xs' }, h('span', { class: `aw-bd ${TONE[st.outcome]}` }, LABEL[st.outcome]), h('span', { class: 'aw-mono' }, st.alias), h('span', { class: 'aw-mu' }, where), h('span', { class: 'aw-grow aw-tr' }, st.detail)),
+      h('ul', { class: 'aw-ops' }, ...attempts.map((a) => {
+        const meta = [a.totalMs !== undefined ? `${a.totalMs} ms` : '', a.queueMs ? `queued ${a.queueMs} ms` : '', a.provider !== 'network' ? `${a.provider} reply` : '',
+          a.idempotencyKey ? `Idempotency key ${a.idempotencyKey}` : '', a.signed ? 'signed at dispatch' : '', a.recordId ? `request #${a.recordId}` : '', a.reason ?? ''].filter(Boolean).join(' · ');
+        // Stacked: badges + method, URL, then timing/reason, then failed checks — nothing squeezed beside the badges.
+        return h('li', { class: 'aw-col aw-gap4 aw-xs' },
+          h('div', { class: 'aw-row aw-gap6' }, h('span', { class: 'aw-bd' }, `${a.kind} ${a.n}`), h('span', { class: `aw-bd ${TONE[a.outcome]}` }, a.status !== undefined ? `HTTP ${a.status}` : LABEL[a.outcome]),
+            h('span', { class: 'aw-mono' }, a.method)),
+          h('div', { class: 'aw-mono aw-wrap' }, a.url),
+          meta ? h('div', { class: 'aw-mu aw-wrap' }, meta) : null,
+          ...a.checks.filter((c) => c.state !== 'passed').map((c) => h('div', { class: 'aw-mu aw-wrap' }, `${c.text}: ${c.state} (${c.detail})`)));
+      }),
         st.attempts.length > attempts.length ? h('li', { class: 'aw-hint' }, `${st.attempts.length - attempts.length} attempt record(s) dropped from the bounded summary`) : null),
-      ...(st.assertions.length ? [h('ul', { class: 'aw-ops', 'aria-label': 'Assertions' }, ...st.assertions.map((x) => h('li', { class: 'aw-row aw-xs' }, h('span', { class: `aw-bd ${x.state === 'passed' ? 'aw-gr' : x.state === 'failed' ? 'aw-rd' : 'aw-am'}` }, x.state), h('span', { class: 'aw-wrap' }, `${x.text} — ${x.detail}`))))] : []));
+      ...(st.assertions.length ? [h('ul', { class: 'aw-ops', 'aria-label': 'Assertions' }, ...st.assertions.map((x) => h('li', { class: 'aw-row aw-xs' }, h('span', { class: `aw-bd ${x.state === 'passed' ? 'aw-gr' : x.state === 'failed' ? 'aw-rd' : 'aw-am'}` }, x.state), h('span', { class: 'aw-grow aw-wrap' }, `${x.text} — ${x.detail}`))))] : []));
     if (openSteps.has(key)) d.open = true;
     return d;
   }

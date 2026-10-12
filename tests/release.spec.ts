@@ -16,6 +16,7 @@ const source = decode(readFileSync('dist/bookmark.txt', 'utf8'));
 const { version } = JSON.parse(readFileSync('dist/sizes.json', 'utf8')) as { version: string };
 
 const button = (page: Page, name: string | RegExp) => page.getByRole('button', { name, exact: typeof name === 'string' });
+const openRecord = async (page: Page) => { await tab(page, 'Home'); await button(page, 'Record').first().click(); };
 const counters = async (page: Page): Promise<Record<string, number>> => (await page.request.get(`${A}/__counters`)).json();
 const send = (page: Page, o: object) => page.evaluate((x) => (window as any).fx.send(x), o) as Promise<Record<string, any>>;
 const settings = (page: Page) => page.getByRole('button', { name: 'Settings', exact: true }).first().click();
@@ -113,7 +114,7 @@ test('resources: idle has no requests; same-path burst joins captures; recorder 
   await page.waitForTimeout(1000); // measured idle window, not a synchronization workaround
   expect(launchRequests).toEqual([]);
   page.off('request', listener);
-  await button(page, 'Import').first().click();
+  await openRecord(page);
   await button(page, 'Start recording').click();
   const hookedMs = await burst();
   await expect(page.locator('#aw-rec-count')).toContainText('60 of 100 calls');
@@ -175,7 +176,7 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
     await page.getByRole('checkbox', { name: 'Recorder reads response bodies' }).click();
     await page.getByRole('checkbox', { name: 'Keep a recorder recovery copy' }).click();
     await saved(page);
-    await button(page, 'Import').first().click();
+    await openRecord(page);
     await button(page, 'Start recording').click();
     for (let i = 0; i < 12; i++) await send(page, { url: `/api/echo?n=${i}` });
     await expect(page.locator('#aw-rec-count')).toContainText('10 of 10 calls');
@@ -186,7 +187,7 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
     await page.reload();
     await page.waitForFunction(() => (window as any).fx);
     await launch(page);
-    await button(page, 'Import').first().click();
+    await openRecord(page);
     await expect(page.locator('#aw-rec-count')).toContainText('0 of 10 calls');
     // Hide while recording: capture stops, the draft stays.
     await button(page, 'Start recording').click();
@@ -196,11 +197,11 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
     await page.getByRole('switch', { name: 'Show Recorder' }).click();
     await saved(page);
     await send(page, { url: '/api/echo?late=1' });
-    await button(page, 'Import').first().click();
-    await expect(page.locator('#aw-rec-hidden')).toBeVisible();
+    await tab(page, 'Home');
+    await expect(button(page, 'Record')).toHaveCount(0); // hidden with the recorder module
     await settings(page);
     await page.getByRole('switch', { name: 'Show Recorder' }).click();
-    await button(page, 'Import').first().click();
+    await openRecord(page);
     await expect(page.locator('#aw-rec-count')).toContainText('1 of 10 calls');
     await expect(button(page, 'Start recording')).toBeVisible();
   });
@@ -236,7 +237,7 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
 
   test('turning body capture off releases a pending recorder read while the page receives every chunk', async ({ page }) => {
     await launch(page);
-    await button(page, 'Import').first().click();
+    await openRecord(page);
     await button(page, 'Start recording').click();
     await page.evaluate(() => {
       (window as any).streamDone = fetch('/api/stream?parts=15&gap=200').then((r) => r.text());
@@ -244,7 +245,7 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
     await expect.poll(async () => (await counters(page))['/api/stream']).toBe(1);
     await settings(page);
     await page.getByRole('checkbox', { name: 'Recorder reads response bodies' }).click();
-    await button(page, 'Import').first().click();
+    await openRecord(page);
     await expect(page.locator('#aw-rec-count')).toContainText('1 of 100 calls');
     await button(page, 'Review recorded calls').click();
     await expect(page.locator('#aw-imp-review')).toContainText('Response bodies are off in Settings; the body was not read');
@@ -254,7 +255,7 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
   test('Clear local data cancels safely, then clears the recorder draft and recovery without touching host storage', async ({ page }) => {
     await launch(page);
     await page.evaluate(() => localStorage.setItem('host-setting', 'keep'));
-    await button(page, 'Import').first().click();
+    await openRecord(page);
     await button(page, 'Start recording').click();
     await send(page, { url: '/api/echo?kept=1' });
     await expect(page.locator('#aw-rec-count')).toContainText('1 of 100 calls');
@@ -262,18 +263,18 @@ test.describe('settings change resources, not just screens (S18.2, G23)', () => 
     await button(page, 'Clear local data…').click();
     await expect(page.getByRole('dialog')).toContainText('recorder draft and recovery copy');
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
-    await button(page, 'Import').first().click();
+    await openRecord(page);
     await expect(page.locator('#aw-rec-count')).toContainText('1 of 100 calls');
     await settings(page);
     await button(page, 'Clear local data…').click();
     await page.getByRole('dialog').getByRole('button', { name: 'Clear local data', exact: true }).click();
     await expect(page.locator('[data-api-workbench] [role=status]').last()).toContainText('Local data cleared');
-    await button(page, 'Import').first().click();
+    await openRecord(page);
     await expect(page.locator('#aw-rec-count')).toContainText('0 of 100 calls');
     await page.getByRole('button', { name: 'Close API Workbench and remove its hooks' }).first().click();
     await page.reload();
     await launch(page);
-    await button(page, 'Import').first().click();
+    await openRecord(page);
     await expect(page.locator('#aw-rec-count')).toContainText('0 of 100 calls');
     expect(await page.evaluate(() => localStorage.getItem('host-setting'))).toBe('keep');
   });

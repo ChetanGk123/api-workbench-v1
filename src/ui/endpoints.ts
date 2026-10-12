@@ -8,7 +8,7 @@ import { describeCheck } from '../tester/once';
 import { exprPicker } from './context';
 import { h, icon } from './dom';
 import {
-  btn, checkbox, countBadge, Errors, field, heading, input, methodBadge, pairRows, section, select, textarea, tile,
+  btn, checkbox, countBadge, Errors, field, heading, input, methodBadge, pairRows, section, select, textarea, tile, withFormat,
   type Built, type Form, type Kit, type Ret,
 } from './kit';
 
@@ -28,6 +28,57 @@ export function destination(agg: Aggregate, r: Endpoint['request'], pageOrigin: 
   const env = agg.profile.environments[agg.profile.activeEnvironment] ?? {};
   const o = env[r.hostKey];
   return o === undefined ? `host ${r.hostKey} is not mapped in ${agg.profile.activeEnvironment}` : `${o || pageOrigin}${r.url}`;
+}
+
+/** Editable header rows with an Add button and presets (endpoint editor, global headers, plan Headers). */
+export function headerRows(kit: Kit, list: Header[], errs: Errors, path: string, allowRemove: boolean, onChange: () => void) {
+  const wrap = h('div', { class: 'aw-col aw-gap6' });
+  const draw = (focusLast = false) => {
+    wrap.replaceChildren(...list.map((hd, i) => {
+      const name = input(hd.name, (v) => { hd.name = v; onChange(); }, { mono: true, label: `Header ${i + 1} name`, placeholder: 'Header-Name' });
+      const value = input(hd.value, (v) => { hd.value = v; onChange(); }, { mono: true, label: `Header ${i + 1} value`, placeholder: hd.remove ? '(removed)' : 'value' });
+      value.disabled = !!hd.remove;
+      const errN = h('span', { class: 'aw-err', role: 'alert' });
+      const errV = h('span', { class: 'aw-err', role: 'alert' });
+      errs.slot(`${path}.${i}.name`, errN, name);
+      errs.slot(`${path}.${i}.value`, errV, value);
+      const r = h('div', { class: 'aw-row aw-gap6' }, name, value);
+      if (allowRemove) r.append(h('span', { class: 'aw-chk aw-xs', title: 'Send without this inherited header' }, checkbox(`Remove ${hd.name || `header ${i + 1}`} from this request`, !!hd.remove, (v) => {
+        if (v) hd.remove = true; else delete hd.remove;
+        onChange();
+        draw();
+      }), 'Remove'));
+      r.append(btn([icon('x')], () => { list.splice(i, 1); onChange(); draw(); }, 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Delete header row ${i + 1}` }));
+      return h('div', { class: 'aw-col' }, r, errN, errV);
+    }), h('div', { class: 'aw-row aw-gap6' },
+      btn([icon('plus', 'aw-i aw-i12'), 'Add header'], () => { list.push({ name: '', value: '' }); onChange(); draw(true); }, 'aw-btn aw-dash aw-sm'),
+      presetSelect(kit, list, () => { onChange(); draw(); })));
+    if (focusLast) wrap.querySelectorAll<HTMLInputElement>('input[aria-label$="name"]')[list.length - 1]?.focus();
+  };
+  draw();
+  return wrap;
+}
+
+function presetSelect(kit: Kit, list: Header[], after: () => void) {
+  const sel = h('select', { class: 'aw-in aw-select aw-sm', 'aria-label': 'Add header preset' },
+    h('option', { value: '' }, 'Presets…'), ...PRESETS.map((p, i) => h('option', { value: String(i) }, p.label)));
+  sel.addEventListener('change', async () => {
+    const p = PRESETS[Number(sel.value)];
+    sel.value = '';
+    if (!p) return;
+    for (const [name, value] of p.headers) {
+      const hit = list.find((x) => x.name.toLowerCase() === name.toLowerCase());
+      if (hit && hit.value !== value) {
+        const v = await kit.ask(`${name} is already set to “${hit.value}”. Replace it with “${value}”?`, [
+          { label: 'Keep existing', cls: 'aw-out', value: 'keep' }, { label: 'Replace', cls: 'aw-pri', value: 'replace' },
+        ]);
+        if (v === 'replace') { hit.value = value; delete hit.remove; }
+      } else if (!hit) list.push({ name, value });
+    }
+    after();
+    kit.announce(`Preset ${p.label} added${p.needs ? `; it needs ${p.needs} when sent` : ''}.`);
+  });
+  return sel;
 }
 
 export function createEndpointsUi(kit: Kit) {
@@ -139,56 +190,6 @@ export function createEndpointsUi(kit: Kit) {
   }
 
   // ---------- shared row editors
-  function headerRows(list: Header[], errs: Errors, path: string, allowRemove: boolean, onChange: () => void) {
-    const wrap = h('div', { class: 'aw-col aw-gap6' });
-    const draw = (focusLast = false) => {
-      wrap.replaceChildren(...list.map((hd, i) => {
-        const name = input(hd.name, (v) => { hd.name = v; onChange(); }, { mono: true, label: `Header ${i + 1} name`, placeholder: 'Header-Name' });
-        const value = input(hd.value, (v) => { hd.value = v; onChange(); }, { mono: true, label: `Header ${i + 1} value`, placeholder: hd.remove ? '(removed)' : 'value' });
-        value.disabled = !!hd.remove;
-        const errN = h('span', { class: 'aw-err', role: 'alert' });
-        const errV = h('span', { class: 'aw-err', role: 'alert' });
-        errs.slot(`${path}.${i}.name`, errN, name);
-        errs.slot(`${path}.${i}.value`, errV, value);
-        const r = h('div', { class: 'aw-row aw-gap6' }, name, value);
-        if (allowRemove) r.append(h('span', { class: 'aw-chk aw-xs', title: 'Send without this inherited header' }, checkbox(`Remove ${hd.name || `header ${i + 1}`} from this request`, !!hd.remove, (v) => {
-          if (v) hd.remove = true; else delete hd.remove;
-          onChange();
-          draw();
-        }), 'Remove'));
-        r.append(btn([icon('x')], () => { list.splice(i, 1); onChange(); draw(); }, 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Delete header row ${i + 1}` }));
-        return h('div', { class: 'aw-col' }, r, errN, errV);
-      }), h('div', { class: 'aw-row aw-gap6' },
-        btn([icon('plus', 'aw-i aw-i12'), 'Add header'], () => { list.push({ name: '', value: '' }); onChange(); draw(true); }, 'aw-btn aw-dash aw-sm'),
-        presetSelect(list, () => { onChange(); draw(); })));
-      if (focusLast) wrap.querySelectorAll<HTMLInputElement>('input[aria-label$="name"]')[list.length - 1]?.focus();
-    };
-    draw();
-    return wrap;
-  }
-
-  function presetSelect(list: Header[], after: () => void) {
-    const sel = h('select', { class: 'aw-in aw-select aw-sm', 'aria-label': 'Add header preset' },
-      h('option', { value: '' }, 'Presets…'), ...PRESETS.map((p, i) => h('option', { value: String(i) }, p.label)));
-    sel.addEventListener('change', async () => {
-      const p = PRESETS[Number(sel.value)];
-      sel.value = '';
-      if (!p) return;
-      for (const [name, value] of p.headers) {
-        const hit = list.find((x) => x.name.toLowerCase() === name.toLowerCase());
-        if (hit && hit.value !== value) {
-          const v = await kit.ask(`${name} is already set to “${hit.value}”. Replace it with “${value}”?`, [
-            { label: 'Keep existing', cls: 'aw-out', value: 'keep' }, { label: 'Replace', cls: 'aw-pri', value: 'replace' },
-          ]);
-          if (v === 'replace') { hit.value = value; delete hit.remove; }
-        } else if (!hit) list.push({ name, value });
-      }
-      after();
-      kit.announce(`Preset ${p.label} added${p.needs ? `; it needs ${p.needs} when sent` : ''}.`);
-    });
-    return sel;
-  }
-
   // ---------- endpoint editor
   function openEditor(id: string | null, ret: Ret, extra?: (d: Endpoint) => void) {
     const agg = s.agg();
@@ -303,14 +304,14 @@ export function createEndpointsUi(kit: Kit) {
           section('Headers',
             h('div', { class: 'aw-lbl' }, 'Inherited from global'), inherited,
             h('div', { class: 'aw-lbl' }, 'This endpoint (overrides and removals)'),
-            headerRows(draft.request.headers, errs, 'request.headers', true, showInherited)),
+            headerRows(kit, draft.request.headers, errs, 'request.headers', true, showInherited)),
           section('Body', bodySlot),
           section('Checks', checksSlot),
           section('Response sample', sampleSlot),
           auth,
           h('p', { class: 'aw-hint aw-wrap' }, `${draft.provenance}. Saving changes stored data only; nothing is sent.`),
       ];
-      const wrap = h('div', { class: 'aw-col aw-gap12' }, h('div', { class: 'aw-row aw-gap6' }, h('span', { class: 'aw-xs aw-mu aw-grow' }, 'Expressions: click a field, then pick'), picker), ...nodes.slice(1));
+      const wrap = h('div', { class: 'aw-col aw-gap12' }, h('div', { class: 'aw-row aw-gap8 aw-exprbar' }, h('span', { class: 'aw-lbl' }, 'Insert expression'), picker, h('span', { class: 'aw-xs aw-mu aw-grow aw-wrap' }, 'at the caret of the last field you clicked')), ...nodes.slice(1));
       wrap.addEventListener('focusin', (ev) => {
         const t = ev.target;
         if ((t instanceof HTMLInputElement && (t.type === 'text' || t.type === '' || t.type === 'search')) || t instanceof HTMLTextAreaElement) lastField = t;
@@ -341,17 +342,8 @@ export function createEndpointsUi(kit: Kit) {
     const out: Node[] = [field('Body kind', kindSel), err];
     if (b.kind === 'text' || b.kind === 'json') {
       const ta = textarea(b.text, (v) => { b.text = v; }, { id: 'aw-ep-body', rows: 6 });
-      out.push(field(b.kind === 'json' ? 'JSON text' : 'Text', ta, errs, 'request.body.text', 'Sent byte-for-byte as written; never reformatted unless you click Format.'));
-      if (b.kind === 'json') {
-        const msg = h('span', { class: 'aw-hint', role: 'status' });
-        out.push(h('div', { class: 'aw-row aw-gap6' }, btn('Format JSON', () => {
-          try {
-            b.text = JSON.stringify(JSON.parse(b.text), null, 2);
-            ta.value = b.text;
-            msg.textContent = 'Formatted.';
-          } catch (e) { msg.textContent = `Not formatted: ${(e as Error).message}`; }
-        }), msg));
-      }
+      const f = field(b.kind === 'json' ? 'JSON text' : 'Text', ta, errs, 'request.body.text', 'Sent byte-for-byte as written; never reformatted unless you click Format JSON.');
+      out.push(b.kind === 'json' ? withFormat(f, ta, 'Format request body as JSON') : f);
     } else if (b.kind === 'urlencoded') {
       out.push(h('span', { class: 'aw-lbl' }, 'Fields (repeated names and order kept)'), pairRows(b.pairs, 'form field', errs, 'request.body.pairs'));
     } else if (b.kind === 'multipart') {
@@ -437,7 +429,7 @@ export function createEndpointsUi(kit: Kit) {
       h('div', { class: 'aw-row aw-gap6' }, h('span', { class: 'aw-bd' }, label), sm.bodyState !== 'complete' ? h('span', { class: 'aw-bd aw-am' }, `body ${sm.bodyState}`) : null),
       h('div', { class: 'aw-w104' }, field('Status', status, errs, 'sample.status')),
       h('span', { class: 'aw-lbl' }, 'Headers'), pairRows(sm.headers, 'sample header', errs, 'sample.headers', touched),
-      field('Body', textarea(sm.body, (v) => { sm.body = v; touched(); }, { rows: 5, id: 'aw-ep-sbody' }), errs, 'sample.body', `Up to ${BOUNDS.sampleBytes / 1024} KB. Editing marks the sample as authored.`),
+      (() => { const ta = textarea(sm.body, (v) => { sm.body = v; touched(); }, { rows: 5, id: 'aw-ep-sbody' }); return withFormat(field('Body', ta, errs, 'sample.body', `Up to ${BOUNDS.sampleBytes / 1024} KB. Editing marks the sample as authored.`), ta, 'Format sample body as JSON'); })(),
       h('div', { class: 'aw-row' }, btn('Remove sample', () => { delete d.sample; redraw(); }, 'aw-btn aw-gh aw-sm')),
     ];
   }
@@ -467,7 +459,7 @@ export function createEndpointsUi(kit: Kit) {
             h('div', { class: 'aw-row' }, kit.backButton(ret.screen, () => kit.leaveForm()), heading('Global headers')),
             h('p', { class: 'aw-hint aw-wrap' }, `Sent with every endpoint in profile ${s.agg().profile.name} unless the endpoint overrides or removes the header. Endpoints are not copied.`),
             errs.summary,
-            headerRows(list, errs, 'globalHeaders', false, () => {}),
+            headerRows(kit, list, errs, 'globalHeaders', false, () => {}),
           ],
         };
       },

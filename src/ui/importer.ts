@@ -50,7 +50,10 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
   let message = '';
   let errors: Diag[] = [];
   let review: Review | null = null;
-  let saved: { text: string; recorderIds: number[] } | null = null;
+  let saved: { text: string; recorderIds: number[]; fromRecorder: boolean } | null = null;
+  /** Which screen is built: Record shows only recorder reviews, Import only pasted/file reviews (one draft at a time). */
+  let where: 'import' | 'record' = 'import';
+  const fromRecorder = () => !!(review ? review.calls?.fromRecorder : saved?.fromRecorder);
 
   // Elements of the current screen (rebuilt by screen()).
   let ui: { state: HTMLElement; text: HTMLTextAreaElement; review: HTMLElement; rec: HTMLElement; stale: HTMLElement } | null = null;
@@ -218,6 +221,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
 
   function drawReview() {
     if (!ui) return;
+    if ((review || saved) && fromRecorder() !== (where === 'record')) { ui.review.replaceChildren(); return; }
     if (!review) { ui.review.replaceChildren(...(saved ? [savedCard()] : [])); return; }
     const r = review;
     const cur = destination();
@@ -263,7 +267,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const none = btn('Clear selection', () => { r.candidates.forEach((x) => setSelected(r, x, false)); drawReview(); }, 'aw-btn aw-gh aw-sm', { 'aria-label': `Clear selection of all ${r.candidates.length} candidates` });
     const d = r.drafts;
     return [
-      h('div', { class: 'aw-row aw-gap6 aw-end' }, h('div', { class: 'aw-grow' }, field('Destination', destSel)), ...(c.dest === 'new' ? [h('div', { class: 'aw-grow' }, field('New profile name', nameIn))] : [])),
+      h('div', { class: 'aw-fieldrow' }, h('div', { class: 'aw-grow' }, field('Destination', destSel)), ...(c.dest === 'new' ? [h('div', { class: 'aw-grow' }, field('New profile name', nameIn))] : [])),
       h('div', { class: 'aw-xs aw-mu aw-wrap', id: 'aw-imp-dest-note' }, c.dest === 'current' ? `Adds to ${cur.profile.name} (revision ${r.revision}). Duplicates of saved endpoints default to Skip.` : 'Creates the profile and switches to it after saving. The current profile is not changed.'),
       ...(d?.servers ? [field('Server', select(String(d.server), d.servers.map((u, i) => [String(i), u || '(relative)'] as [string, string]), (v) => chooseServer(r, Number(v)), { id: 'aw-imp-server' }))] : []),
       h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },
@@ -432,7 +436,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
       drawReview();
       return;
     }
-    saved = { text: summary, recorderIds };
+    saved = { text: summary, recorderIds, fromRecorder: !!r.calls?.fromRecorder };
     review = null;
     setPhase('saved');
     drawReview();
@@ -521,23 +525,45 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
       rec.stopReason() ? h('p', { class: 'aw-alert aw-wrap', id: 'aw-rec-reason' }, rec.stopReason()) : '',
       rec.recoveryError() ? h('p', { class: 'aw-alert aw-wrap', id: 'aw-rec-recovery' }, rec.recoveryError()) : '',
       h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },
-        on ? btn([icon('stop', 'aw-i aw-i12'), 'Stop recording'], () => { rec.stop(); kit.announce(`Recording stopped. ${rec.captures().length} call(s) kept for review.`); }, 'aw-btn aw-out aw-sm', { id: 'aw-rec-stop' })
-          : btn([icon('play', 'aw-i aw-i12'), 'Start recording'], () => { rec.start(); kit.announce(rec.recording() ? 'Recording. Page calls made from now on are captured.' : rec.stopReason()); }, 'aw-btn aw-pri aw-sm', { id: 'aw-rec-start' }),
-        btn('Review recorded calls', reviewRecorded, 'aw-btn aw-out aw-sm', { id: 'aw-rec-review', disabled: !n }),
+        on ? btn([icon('stop', 'aw-i aw-i12'), 'Stop recording'], () => { rec.stop(); kit.announce(`Recording stopped. ${rec.captures().length} call(s) ready to review below.`); autoReview(); }, 'aw-btn aw-out aw-sm', { id: 'aw-rec-stop' })
+          : btn([icon('play', 'aw-i aw-i12'), 'Start recording'], () => {
+            if (saved?.fromRecorder) { saved = null; drawReview(); } // a new recording starts a new review
+            rec.start();
+            kit.announce(rec.recording() ? 'Recording. Page calls made from now on are captured.' : rec.stopReason());
+          }, 'aw-btn aw-pri aw-sm', { id: 'aw-rec-start' }),
+        btn('Review recorded calls', () => reviewRecorded(), 'aw-btn aw-out aw-sm', { id: 'aw-rec-review', disabled: !n }),
         btn('Export as HAR', exportRecorder, 'aw-btn aw-gh aw-sm', { id: 'aw-rec-export', disabled: !n }),
         btn([icon('trash', 'aw-i aw-i12'), 'Reset…'], resetRecorder, 'aw-btn aw-gh aw-sm', { id: 'aw-rec-reset', disabled: !n && !on && !rec.stopReason() })),
       h('div', { class: 'aw-chk' }, checkbox('Include tester traffic', rec.includeTester(), (v) => rec.setIncludeTester(v)), 'Include tester traffic (Test → Once with Apply rules; labelled)'),
+      ...(on && n ? [liveCalls()] : []),
     );
     if (refocus) kit.root.getElementById(refocus)?.focus();
   }
 
-  function reviewRecorded() {
+  /** While recording: the newest captured calls, so it is visible what is being recorded. */
+  function liveCalls(): HTMLElement {
+    const caps = rec.captures();
+    const path = (u: string) => { try { const x = new URL(u); return x.origin === kit.rt.origin ? x.pathname : `${x.host}${x.pathname}`; } catch { return u; } };
+    return h('div', { class: 'aw-col aw-gap6' }, h('span', { class: 'aw-cap' }, `Captured calls (newest first${caps.length > 20 ? `, latest 20 of ${caps.length}` : ''})`),
+      h('ol', { class: 'aw-card aw-list aw-reclive', 'aria-label': 'Captured calls, newest first' }, ...caps.slice(-20).reverse().map((c) =>
+        h('li', { class: 'aw-li aw-gap8' }, methodBadge(c.method), h('span', { class: 'aw-grow aw-tr aw-mono aw-xs', title: c.url }, path(c.url)),
+          h('span', { class: `aw-xs ${c.status && c.status < 400 ? 'aw-t-ok' : 'aw-t-bad'}` }, c.status ? String(c.status) : c.outcome)))));
+  }
+
+  /** On Record, a stopped draft is shown as a review (endpoints + destination) without an extra click. Never replaces
+   * another pending review, and not right after the recorded calls were imported. */
+  function autoReview() {
+    if (where !== 'record' || !ui || rec.recording() || !rec.captures().length || review || saved?.fromRecorder) return;
+    reviewRecorded(false);
+  }
+
+  function reviewRecorded(scroll = true) {
     gen++;
     saved = null;
     sourceName = 'Recorder';
     const caps = [...rec.captures()];
     buildCalls(caps, { source: `Recorder draft (${caps.length} call${caps.length === 1 ? '' : 's'})`, label: 'Recorded calls', notes: [], skipped: [], fromRecorder: true }, review?.calls?.fromRecorder ? review : undefined);
-    ui?.review.querySelector<HTMLElement>('#aw-imp-review strong')?.scrollIntoView({ block: 'nearest' });
+    if (scroll) ui?.review.querySelector<HTMLElement>('#aw-imp-review strong')?.scrollIntoView({ block: 'nearest' });
   }
 
   async function resetRecorder() {
@@ -569,19 +595,14 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     });
     const fmt = select(override, [['auto', 'Detect from content'], ...(Object.entries(FORMAT_NAMES) as [Exclude<Format, 'auto'>, string][])], (v) => { override = v; }, { id: 'aw-imp-format', label: 'Format' });
 
+    where = 'import';
     drawState();
     drawReview();
-    drawRecorder();
     return {
       nodes: [
         kit.subbar('import', 'Import'),
-        kit.session.agg().profile.settings.hidden.includes('recorder')
-          ? h('p', { class: 'aw-hint aw-wrap', id: 'aw-rec-hidden' }, 'The recorder is hidden in Settings → Modules. Its draft is kept; show it again to review or record.')
-          : section('Recorder',
-          h('p', { class: 'aw-hint aw-wrap' }, 'Captures this frame’s Fetch/XHR calls made after Start, including while the panel is minimized. Earlier calls, workers, other frames and cached responses are not captured. Secrets in headers, query and JSON fields are redacted before they are shown or kept.'),
-          recEl),
         section('Source',
-          h('div', { class: 'aw-row aw-gap6 aw-end' }, h('div', { class: 'aw-grow' }, field('Format', fmt)), fileButton(fileIn)),
+          h('div', { class: 'aw-fieldrow' }, h('div', { class: 'aw-grow' }, field('Format', fmt)), fileButton(fileIn)),
           field('Paste', ta, undefined, undefined, `Up to ${IMPORT_MAX_BYTES / 1024 / 1024} MiB. The format is detected from the content. Importing never runs code, reads a file path, fetches a reference or sends a request.`),
           formatHelp(),
           h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },
@@ -593,11 +614,33 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
           state),
         reviewEl,
       ],
-      refresh: () => { drawRecorder(); if (review) drawStale(); },
+      refresh: () => { if (review) drawStale(); },
     };
   }
 
-  return { screen };
+  /** Record: the recorder and the review/commit of recorded calls (same review flow as Import). */
+  function recordScreen(): Built {
+    const reviewEl = h('div', { class: 'aw-col aw-gap8', 'aria-live': 'polite' });
+    const recEl = h('div', { class: 'aw-col aw-gap8', id: 'aw-rec' });
+    const stale = h('div', { class: 'aw-alert aw-row aw-gap6', id: 'aw-imp-stale', hidden: true });
+    ui = { state: h('div', {}), text: textarea('', () => {}), review: reviewEl, rec: recEl, stale };
+    where = 'record';
+    drawReview();
+    drawRecorder();
+    autoReview();
+    return {
+      nodes: [
+        kit.subbar('record', 'Record'),
+        section(['record', 'Recorder'],
+          h('p', { class: 'aw-hint aw-wrap' }, 'Captures this frame’s Fetch/XHR calls made after Start, including while the panel is minimized. Earlier calls, workers, other frames and cached responses are not captured. Secrets in headers, query and JSON fields are redacted before they are shown or kept.'),
+          recEl),
+        reviewEl,
+      ],
+      refresh: () => { drawRecorder(); autoReview(); if (review) drawStale(); },
+    };
+  }
+
+  return { screen, recordScreen };
 }
 
 /** Runtime help: the adapters this build has and the grammar each accepts. */

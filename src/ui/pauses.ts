@@ -4,7 +4,7 @@ import { sensitiveName } from '../net/capture';
 import { LIMITS } from '../net/plan';
 import { checkEdit, type Pause, type PauseView } from '../net/runtime';
 import { h, icon } from './dom';
-import { btn, checkbox, countBadge, Errors, heading, input, methodBadge, pairRows, section, textarea, type Built, type Kit, type Screen } from './kit';
+import { btn, checkbox, countBadge, Errors, formatJson, heading, input, methodBadge, pairRows, section, textarea, type Built, type Kit, type Screen } from './kit';
 
 /** pairRows wants error slots; pause edits are checked as a whole by checkEdit instead. */
 const noSlots = new Errors();
@@ -130,7 +130,7 @@ export function createPausesUi(kit: Kit) {
         } else fields.push(h('span', { class: 'aw-lbl' }, 'Headers'), pairRows(v.headers, `${p.stage} header`, noSlots, 'headers'));
         if (secret.length) fields.push(h('div', { class: 'aw-chk' }, checkbox('Show sensitive values', d!.reveal, (x) => { d!.reveal = x; shown = ''; refresh(); }), 'Show sensitive values', h('span', { class: 'aw-mu' }, `— ${secret.map(([k]) => k).join(', ')}`)));
         fields.push('text' in v.body
-          ? h('div', { class: 'aw-fld' }, h('label', { class: 'aw-lbl', for: 'aw-p-body' }, 'Body'), textarea(v.body.text, (x) => { v.body = { text: x }; }, { id: 'aw-p-body', rows: 6 }))
+          ? (() => { const ta = textarea(v.body.text, (x) => { v.body = { text: x }; }, { id: 'aw-p-body', rows: 6 }); return h('div', { class: 'aw-fld' }, h('label', { class: 'aw-lbl', for: 'aw-p-body' }, 'Body'), ta, formatJson(ta, 'Format paused body as JSON')); })()
           : h('p', { class: 'aw-hint aw-wrap aw-m0' }, `Body: ${v.body.reason}`));
         if (p.stage === 'request' && p.held.headers.some(([k]) => SIGNED.test(k))) {
           fields.push(h('div', { class: 'aw-alert aw-notice aw-wrap' }, icon('alert', 'aw-i aw-i14'),

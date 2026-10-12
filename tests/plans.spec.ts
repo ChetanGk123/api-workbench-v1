@@ -138,6 +138,25 @@ test.describe('plans and results (G16/G17)', () => {
     await expect(page.locator('#aw-run-ind')).toHaveCount(0);
   });
 
+  test('plan Headers edit profile global headers, saved by Save plan; leaving for Auth & context asks first', async ({ page }) => {
+    await launch(page);
+    await addEndpoint(page, { name: 'Echo', alias: 'echo', url: '/api/echo' });
+    await openPlans(page);
+    await page.locator('[data-key="aw-plan-headers"] > summary').click();
+    await button(page, 'Add header').click();
+    await page.getByLabel('Header 1 name').fill('X-Test');
+    await page.getByLabel('Header 1 value').fill('from-plan');
+    await page.locator('[data-key="aw-plan-context"] > summary').click();
+    await button(page, 'Open Auth & context to scan the page and edit bindings').click();
+    await expect(page.getByRole('dialog')).toContainText('These changes are not saved.');
+    await button(page, 'Keep editing').click();
+    await expect(page.getByLabel('Header 1 value')).toHaveValue('from-plan');
+    await page.locator('#aw-plan-save').click();
+    await tab(page, 'Home');
+    await page.getByRole('button', { name: 'Endpoints', exact: true }).click();
+    await expect(button(page, 'Global headers (1)')).toBeVisible();
+  });
+
   test('page scan is explicit, bounded and masked; getters are never invoked; a scanned source becomes a binding', async ({ page }) => {
     await page.evaluate(() => {
       document.cookie = 'XSRF-TOKEN=abc123456789; path=/';
@@ -216,7 +235,7 @@ test.describe('banking-style fixture (G27 subset)', () => {
     await openPlans(page);
     await expect(page.locator('#aw-pf')).toContainText('Signing recipe Bank HMAC needs key "bank_key" for this session');
     await expect(page.locator('#aw-run-load')).toBeDisabled();
-    await page.locator('[data-api-workbench] footer').getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Back to Test' }).click();
     await page.locator('[data-key="view-context"]').click();
     await page.getByLabel('Key text for bank_key').fill('test-key-123');
     await page.getByRole('button', { name: 'Use key bank_key for this session' }).click();

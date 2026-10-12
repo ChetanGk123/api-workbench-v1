@@ -86,13 +86,13 @@ export function createSettingsUi(kit: Kit, o: { version: string; updateUrl: stri
       let newName = '';
       let rename = cur.profile.name;
       profiles.replaceChildren(
-        h('div', { class: 'aw-row aw-gap6 aw-end' },
+        h('div', { class: 'aw-fieldrow' },
           h('div', { class: 'aw-grow' }, field('Active profile', sel)),
           btn('Switch', () => switchTo(sel.value), 'aw-btn aw-out aw-sm', { 'aria-label': 'Switch to the selected profile' })),
-        h('div', { class: 'aw-row aw-gap6 aw-end' },
+        h('div', { class: 'aw-fieldrow' },
           h('div', { class: 'aw-grow' }, field('New profile name', input('', (v) => { newName = v; }, { id: 'aw-prof-new' }))),
-          btn('Create empty', () => create(newName, false)), btn('Save copy', () => create(newName, true), 'aw-btn aw-out aw-sm', { 'aria-label': `Save a copy of ${cur.profile.name}` })),
-        h('div', { class: 'aw-row aw-gap6 aw-end' },
+          h('div', { class: 'aw-row aw-gap6' }, btn('Create empty', () => create(newName, false)), btn('Save copy', () => create(newName, true), 'aw-btn aw-out aw-sm', { 'aria-label': `Save a copy of ${cur.profile.name}` }))),
+        h('div', { class: 'aw-fieldrow' },
           h('div', { class: 'aw-grow' }, field('Rename active profile', input(rename, (v) => { rename = v; }, { id: 'aw-prof-rename' }))),
           btn('Rename', async () => {
             const out = await s.rename(rename);
