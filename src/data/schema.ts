@@ -289,7 +289,8 @@ export const BOUNDS = {
   plans: 100,
   rows: 200,
   bodyBytes: 1024 * 1024,
-  sampleBytes: 16 * 1024,
+  /** A saved response (endpoint sample). Large enough for real list responses; mock replies allow bodyBytes. */
+  sampleBytes: 256 * 1024,
   bodyCheckKb: { min: 1, max: 10240, default: 1024 },
   activityRecords: { min: 50, max: 500, default: 500 },
   recorderCalls: { min: 10, max: 1000, default: 100 },

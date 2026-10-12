@@ -45,6 +45,8 @@ export interface Kit {
   subbar(name: IconName, title: string): HTMLElement;
   /** In-panel notice with an optional action; does not restore a minimized panel. */
   notice(text: string, action?: { label: string; run(): void }): void;
+  /** Small dismissable confirmation at the panel's bottom right; goes away by itself. Also announced. */
+  toast(text: string, tone?: 'ok' | 'error'): void;
   /** Open Test → Results for one run. */
   showRun(id: string): void;
   /** Coalesced chrome + current screen refresh (background state changed). */
@@ -125,6 +127,15 @@ export function formatJson(ta: HTMLTextAreaElement, label: string): HTMLButtonEl
 export function withFormat(fieldEl: HTMLElement, ta: HTMLTextAreaElement, label: string) {
   fieldEl.append(formatJson(ta, label));
   return fieldEl;
+}
+
+/** Brief "✓ Saved" on the button that did it, then its own label again. */
+export function flash(b: HTMLButtonElement, text = 'Saved') {
+  if (b.classList.contains('aw-flash')) return;
+  const kids = [...b.childNodes];
+  b.replaceChildren(icon('check', 'aw-i aw-i14'), text);
+  b.classList.add('aw-flash');
+  setTimeout(() => { b.replaceChildren(...kids); b.classList.remove('aw-flash'); }, 1600);
 }
 
 let seq = 0;

@@ -104,7 +104,8 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   const saveBanner = h('div', { class: 'aw-alert aw-notice aw-row aw-gap6', role: 'status', id: 'aw-save-banner', hidden: true });
   const main = h('main', { class: 'aw-body' });
   const foot = h('footer', { class: 'aw-foot', hidden: true });
-  const panel = h('div', { class: 'aw-root aw-panel', role: 'region', 'aria-label': 'API Workbench' }, header, nav, noticeEl, saveBanner, main, foot);
+  const toasts = h('div', { class: 'aw-toasts' });
+  const panel = h('div', { class: 'aw-root aw-panel', role: 'region', 'aria-label': 'API Workbench' }, header, nav, noticeEl, saveBanner, main, foot, toasts);
   const status = h('div', { class: 'aw-sr', role: 'status', 'aria-live': 'polite' });
 
   // Launcher (Minimized.html)
@@ -544,6 +545,18 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
       act?.addEventListener('click', () => { noticeEl.hidden = true; restore(); action!.run(); });
       noticeEl.replaceChildren(h('div', { class: 'aw-row aw-gap6' }, icon('info', 'aw-i aw-i14'), h('span', { class: 'aw-grow aw-wrap' }, text), act ?? '', close));
       noticeEl.hidden = false;
+    },
+    toast(text, tone = 'ok') {
+      const close = h('button', { class: 'aw-btn aw-gh aw-ic aw-xs2', type: 'button', 'aria-label': 'Dismiss message' }, icon('x', 'aw-i aw-i12'));
+      const t = h('div', { class: `aw-toast aw-toast-${tone}` }, icon(tone === 'ok' ? 'check' : 'alert', 'aw-i aw-i14'), h('span', { class: 'aw-grow aw-wrap' }, text), close);
+      close.addEventListener('click', () => t.remove());
+      setTimeout(() => t.remove(), tone === 'ok' ? 6000 : 10_000);
+      // Sit just above whatever bar is at the bottom now (panel footer, Results action bar), never over it.
+      const bar = main.querySelector<HTMLElement>('.aw-stickyfoot');
+      toasts.style.bottom = `${12 + (foot.hidden ? 0 : foot.offsetHeight) + (bar ? bar.offsetHeight : 0)}px`;
+      toasts.append(t);
+      while (toasts.children.length > 3) toasts.firstElementChild!.remove();
+      announce(text);
     },
     showRun(id) { guard(() => { form = null; testUi.showRun(id); screen = 'test'; render(); }); },
     changed: () => schedule(),

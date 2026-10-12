@@ -42,7 +42,7 @@ const V1 = {
     { id: 'endpoint-1', profileId: 'default', alias: 'get_accounts', name: 'Accounts', hostKey: 'api', createdAt: 1, updatedAt: 1,
       request: { method: 'GET', path: '/api/wires/accounts?RequestID=a%20b+c', headers: [{ name: 'Authorization', value: 'Bearer abc' }, { name: 'Accept', value: '', removed: true }], bodyKind: 'none', body: '', credentials: 'include' },
       checks: [{ kind: 'status', value: { min: 200, max: 299 } }, { kind: 'json', path: 'accounts[0].id', mode: 'exists' }],
-      sampleResponse: { status: 200, headers: [{ name: 'Content-Type', value: 'application/json' }], body: 'x'.repeat(20_000) } },
+      sampleResponse: { status: 200, headers: [{ name: 'Content-Type', value: 'application/json' }], body: 'x'.repeat(300_000) } },
     { id: 'endpoint-2', profileId: 'default', alias: 'post_payee', name: 'Create payee', hostKey: 'api', createdAt: 1, updatedAt: 1,
       request: { method: 'POST', path: '/api/wires/payees', headers: [], bodyKind: 'json', body: '{ "name" :"A",  "amount":"100.10" }', credentials: 'same-origin' },
       checks: [{ kind: 'status', value: 201 }, { kind: 'json', path: 'amount', mode: 'equals', value: '100.10' }] },

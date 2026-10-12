@@ -1,7 +1,7 @@
 // Plan scheduler: setup once, Flow iterations or Independent fair job queues, bounded admission,
 // guards, read-only polls, idempotency keys, auth refresh, signing, cross-step assertions, Stop.
 // The run owns every controller and timer it creates; results are a bounded summary.
-import { type Aggregate, type Condition, type Endpoint, type Plan } from '../data/schema';
+import { BOUNDS, type Aggregate, type Condition, type Endpoint, type Plan } from '../data/schema';
 import type { AuthCoordinator, RefreshAttempt } from './auth';
 import { asText, compareDecimal, decimalText, Num, parseExact, parseExpr, walk, type Sources } from './expr';
 import { condRoot, describeCond, preflight, type Preflight, type StepInfo } from './graph';
@@ -116,9 +116,11 @@ export interface RunHandle {
   stop(why?: string): void;
   done: Promise<RunSummary>;
   subscribe(fn: () => void): () => void;
+  /** The latest response body per endpoint as read (up to the body-check limit), in memory only: never stored. */
+  fullBody(endpointId: string): string | undefined;
 }
 
-export const KEEP = { attempts: 500, steps: 1000, sampleBytes: 16 * 1024 } as const;
+export const KEEP = { attempts: 500, steps: 1000, sampleBytes: BOUNDS.sampleBytes } as const;
 const READ_ONLY = new Set(['GET', 'HEAD', 'OPTIONS']);
 const SENSITIVE_KEY = /token|secret|password|session|csrf|xsrf|signature|authorization|api[-_]?key/i;
 const SENSITIVE_HEADER = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key)$|token|secret|session|csrf|xsrf|signature/i;
@@ -399,7 +401,9 @@ export function startRun(input: RunInput): RunHandle {
     return finish(row(outcome, detail, ids, assertions));
   }
 
+  const full = new Map<string, string>();
   function keepSample(ep: Endpoint, a: Attempt, res: OnceResult) {
+    full.set(ep.id, res.body.text);
     const enc = new TextEncoder().encode(res.body.text);
     const cut = enc.byteLength > KEEP.sampleBytes;
     const body = redactSample(cut ? new TextDecoder().decode(enc.slice(0, KEEP.sampleBytes)).replace(/�$/, '') : res.body.text);
@@ -471,6 +475,7 @@ export function startRun(input: RunInput): RunHandle {
   return {
     id: s.id, summary: s, snapshot: { agg, plan }, stop, done,
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
+    fullBody: (id) => full.get(id),
   };
 }
 

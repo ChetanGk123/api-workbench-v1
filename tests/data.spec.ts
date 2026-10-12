@@ -2,7 +2,7 @@
 // Launch = evaluating the decoded generated bookmark (injection; NOT saved-bookmark evidence).
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { addMock } from './rule-helpers';
+import { addMock, newRule } from './rule-helpers';
 
 const A = `http://127.0.0.1:${process.env.AW_PORT ?? 4310}`;
 const B = `http://127.0.0.1:${process.env.AW_OTHER_PORT ?? 4311}`;
@@ -84,7 +84,7 @@ test.describe('endpoints and Once (G14/G15)', () => {
     const e = await echo(page);
     expect(e).toMatchObject({ method: 'POST', path: '/api/echo', bodyText: json, headers: { 'content-type': 'application/json', 'x-test': 'local' } });
     await button(page, 'Save sample').click();
-    await expect(page.getByRole('status').filter({ hasText: 'Sample saved' })).toHaveCount(1);
+    await expect(page.locator('[data-api-workbench] .aw-toast').last()).toContainText("Saved the response as Create transfer's sample");
     await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
     await expect(page.locator('#aw-store-state')).toHaveText('All changes saved'); // live edit, then stored
     await page.reload();
@@ -206,6 +206,23 @@ test.describe('endpoints and Once (G14/G15)', () => {
     await expect(page.getByRole('textbox', { name: 'Check 2 minimum status' })).toHaveValue('200');
     await button(page, 'Save').click();
     await expect(page.getByRole('heading', { name: 'API Tester' })).toBeVisible();
+  });
+});
+
+test.describe('saved responses (samples) reach mock replies', () => {
+  test('a response over the old 16 KB limit is saved whole, said visibly, and fills a mock reply', async ({ page }) => {
+    await launch(page);
+    await addEndpoint(page, { name: 'Big', alias: 'big_resp', url: '/api/big?n=100000', checks: 'none' });
+    await runOnce(page, 'Big');
+    await button(page, 'Save sample').click();
+    await expect(button(page, 'Saved')).toBeVisible(); // the button confirms, briefly
+    const notice = page.locator('[data-api-workbench] .aw-toast').last();
+    await expect(notice).toContainText("Saved the response as Big's sample");
+    await expect(notice).not.toContainText('cut short');
+    await newRule(page, 'Mock');
+    await page.locator('#aw-slot-0-from').selectOption({ label: 'GET Big · HTTP 200' });
+    await expect(page.locator('#aw-slot-0-body')).toHaveValue('a'.repeat(100000));
+    await expect(page.locator('#aw-slot-0-status')).toHaveValue('200');
   });
 });
 

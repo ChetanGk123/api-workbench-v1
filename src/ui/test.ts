@@ -6,7 +6,7 @@ import { describeCheck, evaluate, pageSources, prepare, send, type CheckOutcome,
 import { signPrepared } from '../tester/sign';
 import { createContextUi } from './context';
 import { h, icon } from './dom';
-import { btn, fileButton, heading, methodBadge, section, tile, type Built, type Kit } from './kit';
+import { btn, fileButton, flash, heading, methodBadge, section, tile, type Built, type Kit } from './kit';
 import { createPlansUi } from './plans';
 import { createRuns, resultsNodes, type RunEntry } from './results';
 
@@ -326,7 +326,7 @@ export function createTestUi(kit: Kit) {
             try { await navigator.clipboard.writeText(res.body.text); kit.announce(`Copied ${res.body.text.length} characters of the run #${r.no} body.`); }
             catch (e) { kit.announce(`Copy refused by the browser: ${(e as Error).message}. Select the body text instead.`); }
           }),
-          ep ? btn('Save sample', () => saveSample(ep, r, res)) : null,
+          ep ? (() => { const b: HTMLButtonElement = btn('Save sample', () => void saveSample(ep, r, res).then((ok) => ok && flash(b))); return b; })() : null,
           ep ? btn('Add check', () => kit.editEndpoint(ep.id, (d) => (d as Endpoint).checks.push({ kind: 'status', min: res.status!, max: res.status! }))) : null,
           ep && !inflight ? btn('Send again (same values)', () => run(ep, r), 'aw-btn aw-gh aw-sm', { 'data-key': 'once-dup', title: 'A deliberate duplicate: the same generated values (UUIDs, idempotency keys) are sent again; signing freshness is renewed' }) : null));
       } else if (res.error) nodes.push(h('p', { class: 'aw-hint aw-wrap' }, res.error));
@@ -363,7 +363,7 @@ export function createTestUi(kit: Kit) {
     view = 'results';
   }
 
-  async function saveSample(ep: Endpoint, r: Run, res: OnceResult) {
+  async function saveSample(ep: Endpoint, r: Run, res: OnceResult): Promise<boolean> {
     const enc = new TextEncoder().encode(res.body.text);
     const cut = enc.byteLength > BOUNDS.sampleBytes;
     const body = cut ? new TextDecoder().decode(enc.slice(0, BOUNDS.sampleBytes)).replace(/�$/, '') : res.body.text;
@@ -371,7 +371,12 @@ export function createTestUi(kit: Kit) {
       const e = a.endpoints.find((x) => x.id === ep.id);
       if (e) e.sample = { status: res.status!, headers: res.headers, body, bodyState: cut || res.body.state !== 'complete' ? 'truncated' : 'complete', source: 'captured', at: r.at.getTime() };
     });
-    kit.announce(out ? `Sample not saved: ${out[0]!.message}` : `Sample saved on ${ep.name} from run #${r.no}${cut || res.body.state !== 'complete' ? ' (body truncated)' : ''}.`);
+    const short = cut || res.body.state !== 'complete';
+    const text = out ? `Response not saved: ${out[0]!.message}`
+      : `Saved the response as ${ep.name}'s sample. Use in Mock → From endpoint or a reply's "Fill from a saved response".`
+        + (short ? ` It was cut short (over ${BOUNDS.sampleBytes / 1024} KB or not fully read) and can't be a mock reply.` : '');
+    kit.toast(text, out ? 'error' : 'ok');
+    return !out;
   }
 
   return { screen, select, stop, showRun, runs, plansUi, contextUi, auth };

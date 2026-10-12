@@ -441,7 +441,7 @@ test('results: save samples, rerun a retained snapshot or current config, retain
   await expect(page.locator('#aw-run-state')).toHaveText('completed');
   const original = (await panel(page).getByText(/^Run .* · profile/).textContent())!.split(' · ')[0];
   await button(page, 'Save all samples').click();
-  await expect(page.locator('[data-api-workbench] [role=status]').last()).toContainText('Saved 1 sample');
+  await expect(page.locator('[data-api-workbench] .aw-toast').last()).toContainText('Saved 1 response as endpoint sample');
   await page.locator('[data-key="run-again"]').click();
   await page.getByRole('dialog').getByRole('button', { name: 'Retained snapshot' }).click();
   await expect(page.locator('#aw-run-state')).toHaveText('completed');

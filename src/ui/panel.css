@@ -178,7 +178,20 @@
 /* Home quick actions: 3 or 4 equal cards (Record hides with the recorder module). */
 .aw-qas{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:10px}
 .aw-reclive{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto}
+.aw-fromsample{flex:0 1 240px;min-width:0}
 /* Rule rows: a long name breaks and the badges wrap under it instead of running off the card. */
 .aw-rulehead{flex-wrap:wrap;min-width:0}
 .aw-rname{min-width:0}
 .aw-linkbd{flex-shrink:1;min-width:0;max-width:100%}
+/* Toasts: bottom right of the panel, above its action bars; dismissable, they leave by themselves. */
+.aw-panel{position:relative}
+.aw-toasts{position:absolute;right:12px;bottom:12px;z-index:5;display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:min(340px,calc(100% - 24px));pointer-events:none}
+.aw-toast{pointer-events:auto;display:flex;align-items:flex-start;gap:8px;padding:10px 8px 10px 12px;background:var(--aw-zinc-900);border:1px solid var(--aw-zinc-700);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12.5px;line-height:1.45;animation:aw-toast-in .18s ease-out}
+.aw-toast>.aw-i{margin-top:1px}
+.aw-toast-ok>.aw-i{color:#4ade80}.aw-toast-error>.aw-i{color:#f87171}.aw-toast-error{border-color:rgba(248,113,113,.4)}
+@keyframes aw-toast-in{from{opacity:0;transform:translateY(6px)}}
+/* Button confirmation: "✓ Saved" for a moment. */
+.aw-btn.aw-flash{color:#4ade80;border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.08);animation:aw-pop .25s ease-out}
+@keyframes aw-pop{50%{transform:scale(1.04)}}
+@media (prefers-reduced-motion:reduce){.aw-toast,.aw-btn.aw-flash{animation:none}}
+.aw-sampbody{padding:10px 0 6px}

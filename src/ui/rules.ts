@@ -3,7 +3,7 @@
 // drafts and never send anything: previews run the pure planner/patch code over typed or sample data.
 import {
   BODYLESS, CHAOS_MODES, linkedMatcher, meaningfulRuleChange, METHODS, newRule, newSlot,
-  type Aggregate, type ChaosFault, type ChaosFaultKind, type ChaosRule, type Diag, type InterceptRule, type Matcher, type MockRule,
+  type Aggregate, type ChaosFault, type ChaosFaultKind, type ChaosRule, type Diag, type Endpoint, type InterceptRule, type Matcher, type MockRule, type MockSlot,
   type PatchOp, type RouteRule, type Rule, type RuleKind, type Transform, validateRuleIn,
 } from '../data/schema';
 import { describeFault, LIMITS, matches, routedUrl, ruleName, type Config, type Module, byPrecedence } from '../net/plan';
@@ -279,6 +279,16 @@ export function createRulesUi(kit: Kit, deps: {
 
   // ---------- editor
 
+  /** Copy an endpoint's saved response into a mock reply (headers the browser computes are dropped). */
+  function fillFromSample(sl: MockSlot, e: Endpoint) {
+    const smp = e.sample!;
+    sl.fault = 'none';
+    sl.status = smp.status;
+    sl.headers = smp.headers.filter(([k]) => !/^(content-length|content-encoding|set-cookie2?)$/i.test(k));
+    sl.body = BODYLESS.has(smp.status) ? '' : smp.body;
+  }
+  const sampleNote = (e: Endpoint) => `Reply copied from ${e.name}'s ${e.sample!.source} sample${e.sample!.bodyState === 'redacted' ? '; redacted values ({{$redacted}}) are replied literally until you replace them' : ''}.`;
+
   function openEditor(m: RuleKind, id: string | null, ret: Ret, o: { endpointId?: string; preset?: Preset } = {}) {
     const agg = s.agg();
     const existing = id ? agg.rules.find((r) => r.id === id) : undefined;
@@ -294,8 +304,8 @@ export function createRulesUi(kit: Kit, deps: {
         if (!e.sample) notes.push(`${e.name} has no saved sample; the reply starts as {} and is yours to fill.`);
         else if (e.sample.bodyState === 'truncated') notes.push(`${e.name}'s sample was truncated when captured, so it was not copied: a cut-off body is not a complete reply.`);
         else {
-          draft.slots[0] = { ...newSlot(), status: e.sample.status, headers: e.sample.headers.filter(([k]) => !/^(content-length|content-encoding|set-cookie2?)$/i.test(k)), body: BODYLESS.has(e.sample.status) ? '' : e.sample.body };
-          notes.push(`Reply copied from ${e.name}'s ${e.sample.source} sample${e.sample.bodyState === 'redacted' ? '; redacted values ({{$redacted}}) are replied literally until you replace them' : ''}.`);
+          fillFromSample(draft.slots[0] = newSlot(), e);
+          notes.push(sampleNote(e));
         }
       }
     }
@@ -435,8 +445,19 @@ export function createRulesUi(kit: Kit, deps: {
           };
           showJson();
           const http = sl.fault === 'none';
+          // Fill this reply from any endpoint's saved response (Results → Save sample, a recording, or typed by hand).
+          const usable = s.agg().endpoints.filter((e) => e.sample && e.sample.bodyState !== 'truncated');
+          const fromSample = select<string>('', [['', usable.length ? 'Fill from a saved response…' : 'No saved responses yet'], ...usable.map((e): [string, string] => [e.id, `${e.request.method} ${e.name} · HTTP ${e.sample!.status}`])], (id) => {
+            const e = usable.find((x) => x.id === id);
+            if (!e) return;
+            fillFromSample(sl, e);
+            kit.announce(sampleNote(e));
+            draw();
+          }, { label: `Fill reply ${i + 1} from a saved response`, id: `aw-slot-${i}-from` });
+          fromSample.classList.add('aw-sm', 'aw-fromsample');
+          fromSample.disabled = !usable.length;
           return h('div', { class: 'aw-card aw-cp aw-col aw-gap8', 'aria-label': `Reply ${i + 1}` },
-            h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl aw-grow' }, n > 1 ? `Reply ${i + 1}` : 'Reply'),
+            h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl aw-grow' }, n > 1 ? `Reply ${i + 1}` : 'Reply'), ...(http ? [fromSample] : []),
               ...(d.mode === 'sequence' ? [
                 btn('↑', () => { d.slots.splice(i - 1, 0, d.slots.splice(i, 1)[0]!); draw(); }, 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Move reply ${i + 1} up`, disabled: i === 0 }),
                 btn('↓', () => { d.slots.splice(i + 1, 0, d.slots.splice(i, 1)[0]!); draw(); }, 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Move reply ${i + 1} down`, disabled: i === n - 1 }),

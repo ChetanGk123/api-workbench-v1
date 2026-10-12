@@ -7,7 +7,7 @@ import { pageSources } from '../tester/once';
 import { OUTCOMES, startRun, type ReqOutcome, type RunHandle, type RunSummary, type StepRow } from '../tester/run';
 import { mean, overall, p95, p99, TIMING, toCsv, toJson, type Stat } from '../tester/stats';
 import { h, icon } from './dom';
-import { btn, download, methodBadge, section, type Kit } from './kit';
+import { btn, download, flash, methodBadge, section, type Kit } from './kit';
 
 export interface RunEntry { summary: RunSummary; handle?: RunHandle; stored: boolean }
 
@@ -16,6 +16,8 @@ const LABEL: Record<ReqOutcome, string> = {
   'skipped-dependency': 'Skipped (dependency)', 'skipped-condition': 'Skipped (condition)', 'blocked-before-dispatch': 'Blocked before dispatch',
 };
 const TONE: Record<ReqOutcome, string> = { passed: 'aw-gr', 'failed-check': 'aw-rd', 'network-error': 'aw-rd', timeout: 'aw-rd', aborted: 'aw-am', 'skipped-dependency': 'aw-am', 'skipped-condition': '', 'blocked-before-dispatch': 'aw-am' };
+/** Characters shown in a response box (like Once); Copy response always copies everything. */
+const SHOW_CHARS = 64 * 1024;
 const ms = (n: number | null) => (n === null ? '—' : `${Math.round(n)} ms`);
 /** Latency colour: green under 300 ms, amber to 1000 ms, red above. */
 const speed = (n: number | null) => (n === null ? 'aw-t-mu' : n < 300 ? 'aw-t-ok' : n < 1000 ? 'aw-t-warn' : 'aw-t-bad');
@@ -177,9 +179,28 @@ export function resultsNodes(kit: Kit, runs: Runs, selected: () => string | null
     const samples = r.samples.map((smp) => {
       const ep = kit.session.agg().endpoints.find((x) => x.id === smp.endpointId);
       const name = r.endpoints.find((x) => x.endpointId === smp.endpointId)?.name ?? smp.endpointId;
-      return h('details', {}, h('summary', { class: 'aw-xs' }, `${name}: HTTP ${smp.status} · ${smp.bodyState} · attempt #${smp.attemptId}`),
-        h('pre', { class: 'aw-code aw-pre', tabindex: '0' }, smp.body.slice(0, 4096) || '(empty)'),
-        ep ? btn('Save sample', () => saveSamples(r, [smp.endpointId])) : h('span', { class: 'aw-hint' }, 'Endpoint no longer exists; this sample cannot be saved.'));
+      // A live run keeps the whole body in memory (the stored summary keeps BOUNDS.sampleBytes); show and copy all of it.
+      const full = e.handle?.fullBody(smp.endpointId);
+      const text = full ?? smp.body;
+      const shown = text.length > SHOW_CHARS ? text.slice(0, SHOW_CHARS) : text;
+      const state = full !== undefined && smp.bodyState === 'truncated' ? 'complete' : smp.bodyState;
+      const notes = [
+        shown !== text ? `Showing the first ${SHOW_CHARS / 1024}K of ${text.length.toLocaleString('en')} characters; Copy response copies all of it.` : '',
+        full !== undefined && smp.bodyState === 'truncated' ? `Save sample keeps the first ${BOUNDS.sampleBytes / 1024} KB.` : '',
+        full === undefined && smp.bodyState === 'truncated' ? `Only the first ${BOUNDS.sampleBytes / 1024} KB were kept with this stored run; run it again to see the whole response.` : '',
+      ].filter(Boolean).join(' ');
+      return h('details', { class: 'aw-sample' }, h('summary', { class: 'aw-xs' }, `${name}: HTTP ${smp.status} · ${state} · attempt #${smp.attemptId}`),
+        h('div', { class: 'aw-col aw-gap8 aw-sampbody' },
+          h('pre', { class: 'aw-code aw-pre', tabindex: '0' }, shown || '(empty)'),
+          notes ? h('p', { class: 'aw-hint aw-wrap aw-m0' }, notes) : null,
+          h('div', { class: 'aw-row aw-gap6 aw-wrapbtns' },
+            ep ? (() => { const b: HTMLButtonElement = btn('Save sample', () => void saveSamples(r, [smp.endpointId]).then((ok) => ok && flash(b))); return b; })() : h('span', { class: 'aw-hint' }, 'Endpoint no longer exists; this sample cannot be saved.'),
+            (() => {
+              const b: HTMLButtonElement = btn('Copy response', async () => {
+                try { await navigator.clipboard.writeText(text); flash(b, 'Copied'); } catch (x) { kit.toast(`Copy refused by the browser: ${(x as Error).message}`, 'error'); }
+              }, 'aw-btn aw-gh aw-sm');
+              return b;
+            })())));
     });
     // Pinned to the bottom of the scrolling panel (sticky), like the old tool's action bar.
     const exportRow = h('div', { class: 'aw-row aw-gap6 aw-stickyfoot' },
@@ -198,7 +219,7 @@ export function resultsNodes(kit: Kit, runs: Runs, selected: () => string | null
       section('Per-endpoint breakdown', h('div', { class: 'aw-scrollx' }, table),
         h('p', { class: 'aw-hint aw-wrap' }, 'Fail includes network errors and timeouts; Skip is not sent. Network timings in milliseconds: green under 300, amber to 1000, red above. P95 / P99: 95 / 99 of every 100 retained samples were at least that fast. Hover a row for the endpoint name.')),
       section(`Steps (${r.steps.length + r.stepsDropped})`, stepList),
-      ...(samples.length ? [section('Last responses', ...samples, btn('Save all samples', () => saveSamples(r, r.samples.map((x) => x.endpointId))))] : []),
+      ...(samples.length ? [section('Last responses', ...samples, (() => { const b: HTMLButtonElement = btn('Save all samples', () => void saveSamples(r, r.samples.map((x) => x.endpointId)).then((ok) => ok && flash(b))); return b; })())] : []),
       h('p', { class: 'aw-hint aw-wrap' }, 'Browser-local test from one tab and one cookie session. These numbers are not server capacity evidence.'),
       exportRow,
     ];
@@ -227,7 +248,8 @@ export function resultsNodes(kit: Kit, runs: Runs, selected: () => string | null
     return d;
   }
 
-  async function saveSamples(r: RunSummary, ids: string[]) {
+  /** Returns true when saved (the button then flashes "Saved"). */
+  async function saveSamples(r: RunSummary, ids: string[]): Promise<boolean> {
     const list = r.samples.filter((x) => ids.includes(x.endpointId));
     const missing: string[] = [];
     const out = await kit.session.edit((a) => {
@@ -238,7 +260,14 @@ export function resultsNodes(kit: Kit, runs: Runs, selected: () => string | null
         ep.sample = { status: smp.status, headers: smp.headers, body: enc.byteLength > BOUNDS.sampleBytes ? smp.body.slice(0, BOUNDS.sampleBytes / 4) : smp.body, bodyState: smp.bodyState === 'complete' ? 'complete' : 'truncated', source: 'captured', at: smp.at };
       }
     });
-    kit.announce(out ? `Samples not saved: ${out[0]!.message}` : `Saved ${list.length - missing.length} sample(s) from run ${r.id}${missing.length ? `; ${missing.length} endpoint(s) no longer exist` : ''}.`);
+    // Visible in the panel (not only announced): saving changes stored endpoints, so say what happened and how to use it.
+    const n = list.length - missing.length;
+    const cut = list.filter((x) => !missing.includes(x.endpointId) && x.bodyState !== 'complete').length;
+    const text = out ? `Response not saved: ${out[0]!.message}`
+      : `Saved ${n} response${n === 1 ? '' : 's'} as endpoint sample${n === 1 ? '' : 's'}${missing.length ? `; ${missing.length} endpoint(s) no longer exist` : ''}. Use in Mock → From endpoint or a reply's "Fill from a saved response".`
+        + (cut ? ` ${cut} over ${BOUNDS.sampleBytes / 1024} KB ${cut === 1 ? 'was' : 'were'} cut short and can't be a mock reply.` : '');
+    kit.toast(text, out ? 'error' : 'ok');
+    return !out;
   }
 
   return { nodes: [historyEl, detail], refresh };
