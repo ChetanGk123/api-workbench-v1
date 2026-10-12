@@ -106,6 +106,12 @@ export function newCapture(rec: { id: number; transport: 'fetch' | 'xhr'; source
   return c;
 }
 
+/** Realm-independent type test. Objects from a same-origin iframe are instances of that frame's classes, so
+ * `instanceof` against this window's classes fails for them; the built-in tag does not. */
+export const isA = (x: unknown, tag: string) => Object.prototype.toString.call(x) === `[object ${tag}]`;
+/** An AbortError from any realm (a frame's native fetch rejects with that frame's DOMException). */
+export const isAbort = (e: unknown) => (e as { name?: unknown } | null)?.name === 'AbortError';
+
 /** Classify a request body the page passed. Synchronous kinds only; a prebuilt Request is read by the fetch adapter. */
 export function requestBody(body: unknown, contentType: string, c: Pick<Capture, 'redacted' | 'notes'>, max: number = CAP.requestBytes): CapBody {
   if (body == null) return { kind: 'none' };
@@ -114,18 +120,18 @@ export function requestBody(body: unknown, contentType: string, c: Pick<Capture,
     if (/^application\/x-www-form-urlencoded\b/i.test(contentType)) return { kind: 'urlencoded', pairs: cleanPairs(new URLSearchParams(body), c, 'Form') };
     return { kind: 'text', text: redactText(body, contentType, c, 'Body') };
   }
-  if (body instanceof URLSearchParams) return { kind: 'urlencoded', pairs: cleanPairs(body, c, 'Form') };
-  if (body instanceof FormData) {
+  if (isA(body, 'URLSearchParams')) return { kind: 'urlencoded', pairs: cleanPairs(body as URLSearchParams, c, 'Form') };
+  if (isA(body, 'FormData')) {
     const parts: Part[] = [];
-    for (const [name, v] of body) {
+    for (const [name, v] of body as FormData) {
       if (typeof v === 'string') parts.push({ kind: 'field', name, value: sensitiveName(name) ? (c.redacted.push(`Field ${name}`), REDACTED) : v });
       else parts.push({ kind: 'file', name, fileName: v.name });
     }
     if (parts.some((p) => p.kind === 'file')) c.notes.push('File contents are never captured; choose the files again when running');
     return { kind: 'multipart', parts };
   }
-  if (body instanceof ReadableStream) return { kind: 'omitted', reason: 'Streaming request body cannot be captured' };
-  if (typeof Document !== 'undefined' && body instanceof Document) return { kind: 'omitted', reason: 'Document request body is not captured' };
+  if (isA(body, 'ReadableStream')) return { kind: 'omitted', reason: 'Streaming request body cannot be captured' };
+  if (isA(body, 'Document') || isA(body, 'HTMLDocument') || isA(body, 'XMLDocument')) return { kind: 'omitted', reason: 'Document request body is not captured' };
   return { kind: 'omitted', reason: 'Binary request body (Blob/ArrayBuffer) is not captured' };
 }
 

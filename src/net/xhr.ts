@@ -8,7 +8,7 @@
 //   page's own object cannot be held back.)
 // - Mock and synthetic chaos use an explicit state/event machine and send nothing.
 import { utf8Bytes, type InterceptRule, type Pair, type Transform } from '../data/schema';
-import { CAP, cleanHeaders, headerLines, newCapture, redactText, requestBody, sensitiveName, type ResBody } from './capture';
+import { CAP, cleanHeaders, headerLines, isA, isAbort, newCapture, redactText, requestBody, sensitiveName, type ResBody } from './capture';
 import { jsonOrText, matchBody, statusText } from './fetch';
 import { applyPatch, hasBodyOps, hasHeaderOps, transformBody } from './patch';
 import { BODYLESS_STATUS, LIMITS, planRequest, type Plan } from './plan';
@@ -54,12 +54,14 @@ interface Synthetic {
 interface Reply { status: number; statusText: string; headers: Pair[]; text: string; response: unknown; url: string }
 
 const SHADOWED = ['readyState', 'status', 'statusText', 'response', 'responseText', 'responseURL', 'responseXML', 'getResponseHeader', 'getAllResponseHeaders'] as const;
-const proto = XMLHttpRequest.prototype;
-export function captureXhr(): XhrNatives {
+/** The natives of `win`'s XMLHttpRequest.prototype (a same-origin frame has its own). */
+export function captureXhr(win: Window = window): XhrNatives {
+  const proto = (win as unknown as typeof globalThis).XMLHttpRequest.prototype;
   return { open: proto.open, send: proto.send, setRequestHeader: proto.setRequestHeader, abort: proto.abort };
 }
 
-export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch): XhrNatives {
+/** `win` is the window whose XHR prototype this instruments: relative URLs resolve against its current address. */
+export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch, win: Window = window): XhrNatives {
   const state = new WeakMap<XMLHttpRequest, XState>();
 
   function unshadow(xhr: XMLHttpRequest) {
@@ -76,7 +78,7 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
     if (rt.inert) return n.open.apply(this, args);
     let u: URL;
     try {
-      u = new URL(String(url), location.href);
+      u = new URL(String(url), win.location.href);
     } catch {
       return n.open.apply(this, args); // native throws the correct SyntaxError
     }
@@ -409,7 +411,7 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
   /** Bounded copies through the captured fetch; the page's XHR sees only the primary. */
   function replay(xhr: XMLHttpRequest, st: XState, plan: Plan, parent: ReqRecord, body: unknown, headers: [string, string][], withCredentials: boolean) {
     const f = plan.chaos!.fault as { copies: number; gapMs: number };
-    if (body != null && !(typeof body === 'string' || body instanceof Blob || body instanceof ArrayBuffer || ArrayBuffer.isView(body) || body instanceof URLSearchParams || body instanceof FormData)) {
+    if (body != null && !(typeof body === 'string' || isA(body, 'Blob') || isA(body, 'File') || isA(body, 'ArrayBuffer') || ArrayBuffer.isView(body) || isA(body, 'URLSearchParams') || isA(body, 'FormData'))) {
       rt.note(parent, 'Replay copies not sent: this body type cannot be sent again');
       return;
     }
@@ -432,7 +434,7 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch)
         report();
         nativeFetch(url.href, { ...init, signal: ctl.signal }).then(
           (r) => { rt.finish(child, 'ok', r.status); r.body?.cancel().catch(() => {}); },
-          (e: unknown) => rt.finish(child, e instanceof DOMException && e.name === 'AbortError' ? 'aborted' : 'error'),
+          (e: unknown) => rt.finish(child, isAbort(e) ? 'aborted' : 'error'),
         ).finally(() => { release(); unown(); });
       }
     })();

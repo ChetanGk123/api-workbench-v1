@@ -2,7 +2,7 @@
 // Matched calls follow the NETWORK pipeline: provider (synthetic chaos > mock > network), request
 // work, one primary dispatch, response work, real chaos, then delivery. Replay copies bypass rules.
 import { utf8Bytes, type Credentials, type Pair, type Transform } from '../data/schema';
-import { CAP, cleanHeaders, newCapture, readPrefix, redactText, requestBody, sensitiveName, textualType } from './capture';
+import { CAP, cleanHeaders, isA, isAbort, newCapture, readPrefix, redactText, requestBody, sensitiveName, textualType } from './capture';
 import { applyPatch, editHeaders, hasBodyOps, hasHeaderOps, transformBody } from './patch';
 import { BODYLESS_STATUS, LIMITS, planRequest, type Intake, type Plan } from './plan';
 import { readBounded, sameHeaders, type PauseView, type ReqRecord, type Runtime } from './runtime';
@@ -14,7 +14,7 @@ export const statusText = (s: number) => STATUS_TEXT[s] ?? '';
 /** What a body condition can see: complete bounded text, or why not. Never reads a stream. */
 export function matchBody(body: unknown): Intake['body'] {
   if (body == null) return { text: '' };
-  const text = typeof body === 'string' ? body : body instanceof URLSearchParams ? body.toString() : null;
+  const text = typeof body === 'string' ? body : isA(body, 'URLSearchParams') ? String(body) : null;
   if (text === null) return { reason: `a ${Object.prototype.toString.call(body).slice(8, -1)} body is not read for matching` };
   return utf8Bytes(text) <= LIMITS.bodyBytes ? { text } : { reason: `body over ${LIMITS.bodyBytes} bytes` };
 }
@@ -29,7 +29,26 @@ function synth(status: number, headers: HeadersInit, body: string, method: strin
   return new Response(bodyless ? null : body, { status, statusText: statusText(status), headers });
 }
 
-export function createFetch(nativeFetch: typeof fetch, rt: Runtime): typeof fetch {
+/** `win` is the window whose fetch this wraps: relative URLs resolve against its current address (frames too). */
+export function createFetch(nativeFetch: typeof fetch, rt: Runtime, win: Window = window): typeof fetch {
+  const handle = createHandler(nativeFetch, rt, win);
+  if (win === window) return handle;
+  // A frame's code gets its own realm's Promise/Response/errors, so `instanceof` checks there keep working.
+  // Network responses already come from the frame's native fetch; synthetic and rebuilt ones are re-wrapped.
+  const W = win as Window & typeof globalThis;
+  const ownRealm = (r: Response): boolean => r instanceof W.Response; // the types match across realms; the classes do not
+  return function awFetch(this: unknown) {
+    // eslint-disable-next-line prefer-rest-params
+    return W.Promise.resolve(handle.apply(this, arguments as unknown as Parameters<typeof fetch>)).then(
+      (r: Response) => (ownRealm(r) ? r : new W.Response(r.body, { status: r.status, statusText: r.statusText, headers: r.headers })),
+      (e: unknown) => {
+        if (e instanceof W.Error || !(e instanceof Error)) throw e;
+        throw e.name === 'TypeError' ? new W.TypeError(e.message) : new W.DOMException(e.message, e.name);
+      });
+  } as typeof fetch;
+}
+
+function createHandler(nativeFetch: typeof fetch, rt: Runtime, win: Window): typeof fetch {
   return function awFetch(this: unknown, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     // eslint-disable-next-line prefer-rest-params
     const args = arguments as unknown as Parameters<typeof fetch>;
@@ -37,9 +56,9 @@ export function createFetch(nativeFetch: typeof fetch, rt: Runtime): typeof fetc
 
     let url: URL;
     let method: string;
-    const req = input instanceof Request ? input : null;
+    const req = isA(input, 'Request') ? input as Request : null;
     try {
-      url = new URL(req ? req.url : input instanceof URL ? input.href : String(input), location.href);
+      url = new URL(req ? req.url : isA(input, 'URL') ? (input as URL).href : String(input), win.location.href);
       method = String(init?.method ?? (req ? req.method : 'GET')).toUpperCase();
     } catch {
       return nativeFetch.apply(this, args); // native produces the correct rejection
@@ -58,13 +77,13 @@ export function createFetch(nativeFetch: typeof fetch, rt: Runtime): typeof fetc
       return p;
     }
     const signal = init?.signal !== undefined ? init.signal : req ? req.signal : undefined;
-    const p = run(nativeFetch, this, input, init, method, signal, plan, rec, rt);
+    const p = run(nativeFetch, this, input, init, url.href, method, signal, plan, rec, rt);
     observe(p, rec, rt, reqBody);
     return p;
   };
 }
 
-async function run(nativeFetch: typeof fetch, self: unknown, input: RequestInfo | URL, init: RequestInit | undefined, method: string, signal: AbortSignal | null | undefined, plan: Plan, rec: ReqRecord, rt: Runtime): Promise<Response> {
+async function run(nativeFetch: typeof fetch, self: unknown, input: RequestInfo | URL, init: RequestInit | undefined, href: string, method: string, signal: AbortSignal | null | undefined, plan: Plan, rec: ReqRecord, rt: Runtime): Promise<Response> {
   if (signal?.aborted) throw signal.reason;
   if (plan.provider === 'chaos') return syntheticChaos(plan, method, signal, rec, rt);
   if (plan.provider === 'mock') return mockResponse(plan, method, signal, rec, rt);
@@ -72,9 +91,9 @@ async function run(nativeFetch: typeof fetch, self: unknown, input: RequestInfo 
   const chaos = plan.chaos;
   const ic = plan.intercept;
   const changes = !!(plan.route || ic?.request || chaos?.fault.kind === 'replay');
-  let prepared = changes || ic?.breakRequest ? await prepare(input, init, plan, rec, rt) : null;
+  let prepared = changes || ic?.breakRequest ? await prepare(input, init, href, plan, rec, rt) : null;
   if (ic?.breakRequest) {
-    const d = await requestPause(prepared, input, init, method, signal, plan, rec, rt);
+    const d = await requestPause(prepared, input, init, href, method, signal, plan, rec, rt);
     if (d === 'abort') throw new DOMException('Workbench breakpoint: request aborted before it was sent', 'AbortError');
     if (d !== 'keep') prepared = d;
     else if (!changes) prepared = null; // unchanged: the caller's own arguments, exactly as given
@@ -100,7 +119,7 @@ async function run(nativeFetch: typeof fetch, self: unknown, input: RequestInfo 
 // ---------- breakpoints (pause registry in runtime)
 
 /** Hold the effective request before dispatch. 'keep' = send as prepared; a Prepared = send the edit. */
-async function requestPause(prepared: Prepared | null, input: RequestInfo | URL, init: RequestInit | undefined, method: string, signal: AbortSignal | null | undefined, plan: Plan, rec: ReqRecord, rt: Runtime): Promise<Prepared | 'keep' | 'abort'> {
+async function requestPause(prepared: Prepared | null, input: RequestInfo | URL, init: RequestInit | undefined, href: string, method: string, signal: AbortSignal | null | undefined, plan: Plan, rec: ReqRecord, rt: Runtime): Promise<Prepared | 'keep' | 'abort'> {
   let view: PauseView;
   if (prepared) {
     const b = prepared.init.body;
@@ -109,15 +128,15 @@ async function requestPause(prepared: Prepared | null, input: RequestInfo | URL,
       url: prepared.url,
       headers: [...new Headers(prepared.init.headers)],
       body: b == null ? { text: '' } : typeof b === 'string' ? { text: b }
-        : b instanceof Uint8Array && textualType(ct) && b.byteLength <= LIMITS.bodyBytes ? { text: new TextDecoder().decode(b) }
+        : isA(b, 'Uint8Array') && textualType(ct) && (b as Uint8Array).byteLength <= LIMITS.bodyBytes ? { text: new TextDecoder().decode(b as Uint8Array) }
         : { reason: `${Object.prototype.toString.call(b).slice(8, -1)} body: not editable as text; it is sent as is` },
     };
     if (method === 'GET' || method === 'HEAD') view.body = { reason: `${method} requests have no body` };
   } else {
-    const req = input instanceof Request ? input : null;
+    const req = isA(input, 'Request') ? input as Request : null;
     let headers: [string, string][] = [];
     try { headers = [...new Headers(init?.headers !== undefined ? init.headers : req?.headers)]; } catch { /* native reports it */ }
-    view = { url: req ? req.url : new URL(String(input instanceof URL ? input.href : input), location.href).href, headers, locked: 'The request could not be prepared for editing (see Why); Continue sends it unchanged', body: { reason: 'Not available' } };
+    view = { url: href, headers, locked: 'The request could not be prepared for editing (see Why); Continue sends it unchanged', body: { reason: 'Not available' } };
   }
   const d = await rt.pause(rec, 'request', plan.intercept!.rule, view, signal);
   if (d.kind === 'abort') return 'abort';
@@ -196,8 +215,8 @@ interface Prepared { url: string; init: RequestInit; /** Body can be sent again 
  * Build the effective request: route destination/credentials/Authorization, then request edits.
  * Returns null to send the original arguments unchanged; each skipped part says why.
  */
-async function prepare(input: RequestInfo | URL, init: RequestInit | undefined, plan: Plan, rec: ReqRecord, rt: Runtime): Promise<Prepared | null> {
-  const req = input instanceof Request ? input : null;
+async function prepare(input: RequestInfo | URL, init: RequestInit | undefined, href: string, plan: Plan, rec: ReqRecord, rt: Runtime): Promise<Prepared | null> {
+  const req = isA(input, 'Request') ? input as Request : null;
   const fail = (reason: string) => {
     if (plan.route) rt.op(rec, 'route', 'skipped', `${reason}; original request sent once`);
     if (plan.intercept?.request) rt.op(rec, 'intercept', 'skipped', `${reason}; original request sent once`, 'request');
@@ -220,7 +239,7 @@ async function prepare(input: RequestInfo | URL, init: RequestInit | undefined, 
   let reusable = true;
   if (init?.body !== undefined) {
     body = init.body; // caller's BodyInit forwarded without inspection
-    if (body instanceof ReadableStream) reusable = false;
+    if (isA(body, 'ReadableStream')) reusable = false;
     if ((init as { duplex?: string }).duplex) (out as { duplex?: string }).duplex = (init as { duplex?: string }).duplex!;
   } else if (req?.body) {
     if (req.bodyUsed) return fail('Request body already used');
@@ -236,7 +255,7 @@ async function prepare(input: RequestInfo | URL, init: RequestInit | undefined, 
     }
   }
 
-  let url = req ? req.url : input instanceof URL ? input.href : new URL(String(input), location.href).href;
+  let url = href;
   if (plan.route) {
     const { to, dropAuthorization, credentials } = plan.route;
     url = to.href;
@@ -252,7 +271,7 @@ async function prepare(input: RequestInfo | URL, init: RequestInit | undefined, 
     let skipped = '';
     if (hasHeaderOps(ic)) { headers = editHeaders(headers, ic); did.push(`${ic.setHeaders.length} set, ${ic.removeHeaders.length} removed header(s)`); }
     if (hasBodyOps(ic)) {
-      const text = typeof body === 'string' ? body : body instanceof Uint8Array && textualType(headers.get('content-type') ?? '') ? new TextDecoder().decode(body) : null;
+      const text = typeof body === 'string' ? body : isA(body, 'Uint8Array') && textualType(headers.get('content-type') ?? '') ? new TextDecoder().decode(body as Uint8Array) : null;
       if (text === null) skipped = body == null ? 'no request body' : 'request body is not finite text';
       else if (utf8Bytes(text) > LIMITS.bodyBytes) skipped = `request body over ${LIMITS.bodyBytes} bytes`;
       else {
@@ -290,7 +309,7 @@ function replay(nativeFetch: typeof fetch, prepared: Prepared | null, f: { copie
       report();
       nativeFetch(url.href, { ...prepared.init, signal: ctl.signal }).then(
         (r) => { rt.finish(child, 'ok', r.status); r.body?.cancel().catch(() => {}); },
-        (e: unknown) => rt.finish(child, e instanceof DOMException && e.name === 'AbortError' ? 'aborted' : 'error'),
+        (e: unknown) => rt.finish(child, isAbort(e) ? 'aborted' : 'error'),
       ).finally(() => { release(); unown(); });
     }
   })();
@@ -404,7 +423,7 @@ function observe(p: Promise<Response>, rec: ReqRecord, rt: Runtime, reqBody?: Pr
       if (rec.capture) captureResponse(r, rec, rt, reqBody);
     },
     (e: unknown) => {
-      rt.finish(rec, e instanceof DOMException && e.name === 'AbortError' ? 'aborted' : e instanceof DOMException && e.name === 'TimeoutError' ? 'timeout' : 'error');
+      rt.finish(rec, isAbort(e) ? 'aborted' : (e as { name?: unknown } | null)?.name === 'TimeoutError' ? 'timeout' : 'error');
       if (rec.capture) void Promise.resolve(reqBody).then(() => rt.captured(rec));
     },
   );
@@ -414,7 +433,7 @@ function observe(p: Promise<Response>, rec: ReqRecord, rt: Runtime, reqBody?: Pr
 function captureRequest(input: RequestInfo | URL, init: RequestInit | undefined, url: URL, method: string, rec: ReqRecord, rt: Runtime): Promise<void> {
   const c = newCapture(rec, method, url);
   rec.capture = c;
-  const req = input instanceof Request ? input : null;
+  const req = isA(input, 'Request') ? input as Request : null;
   let headers: Headers;
   try { headers = new Headers(init?.headers !== undefined ? init.headers : req?.headers); } catch { headers = new Headers(); c.notes.push('Request headers were invalid; the browser rejected them'); }
   c.headers = cleanHeaders(headers, c);

@@ -16,7 +16,7 @@ Non-negotiable constraints:
 - Native DOM in one shadow root; supplied zinc theme and system fonts.
 - One shared interception layer; separate fetch and XHR adapters.
 - Browser-managed credentials and policies remain authoritative. New tester requests need explicitly configured bearer/CSRF headers; do not infer them from an application client.
-- Current-frame calls made through the hooked APIs after launch only. Cached references, other frames, workers, browser resource loads, navigation, beacon, sockets and event streams outside supported fetch/XHR behavior are not whole-tab capture.
+- Calls made through the hooked APIs after launch, in the launch page and every same-origin frame (nested, added or navigated later; a frame's calls before it is hooked are missed). Cross-origin frames are unreachable from page script and are named in the UI, never implied. Cached references, workers, browser resource loads, navigation, beacon, sockets and event streams outside supported fetch/XHR behavior are not whole-tab capture.
 - All listed v1 features remain in the release. Milestones control order, not scope.
 - Imported code is data: no shell execution, `eval`, `new Function`, Postman scripts or arbitrary page function invocation.
 - A user-requested update check may read the deployed version and bookmark text as data. This is not a runtime loader; the text is never executed or installed automatically. There is no passive update request.
@@ -35,7 +35,7 @@ Each row is a required user workflow. An implementation task and acceptance evid
 | P06 | Once | Direct single endpoint, page-eligible session, request preview, cancellation, readable response/headers/checks, copy/sample/check actions |
 | P07 | Plans | Save/rename/copy/delete, setup/load/skip, Flow and Independent, one-pass and repeated execution, iterations/concurrency/delay/ramp-up, failure policy, completion notice |
 | P08 | Results | Progress, separate outcome categories, per-endpoint results, honest timing/statistics, response samples, history, JSON/CSV, rerun |
-| P09 | Recorder | Start/Stop/Reset, current-frame future calls, bounded/redacted capture, recovery as a draft, filter/select/edit/dedupe, promote into current/new profile |
+| P09 | Recorder | Start/Stop/Reset, future calls from the page and its same-origin frames, bounded/redacted capture, recovery as a draft, filter/select/edit/dedupe, promote into current/new profile |
 | P10 | Import | Native schema, HAR 1.2, Swagger 2.0 JSON, OpenAPI 3.0 JSON, Postman 2.1, supported cURL dialects and literal fetch; file/paste, override, examples, reviewed transactional commits |
 | P11 | Mock | Linked/ad-hoc rules, static/sequence replies, status/body/headers, bounded delays/faults, priority/conditions, atomic sequence reservation, explicit exhaustion, samples, hits/traffic |
 | P12 | Intercept | Request/response headers and bodies, transactional JSON Patch, literal replacements, status override, conditions/priority, visible applied/skipped traces |
@@ -53,7 +53,7 @@ Optional self-contained module-only builds remain an optional build recipe from 
 
 ## Deliberate exclusions
 
-No cloud accounts, collaboration backend, telemetry, remote parsing, proxy/CORS bypass, whole-tab extension capture, cross-frame automatic instrumentation, arbitrary JavaScript execution or distributed performance claims. Postman environment files/YAML/remote references are not implicit in the declared format versions. Explain unsupported content rather than treating it as a successful translation.
+No cloud accounts, collaboration backend, telemetry, remote parsing, proxy/CORS bypass, whole-tab extension capture, cross-origin frame instrumentation, arbitrary JavaScript execution or distributed performance claims. Postman environment files/YAML/remote references are not implicit in the declared format versions. Explain unsupported content rather than treating it as a successful translation.
 
 ## Defaults and important user choices
 

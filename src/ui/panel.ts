@@ -34,7 +34,16 @@ const RULE_SCREENS = new Set<Screen>(['mock', 'intercept', 'route', 'chaos']);
 const SHOWN = 50;
 const STEP = 16;
 
-export function mountPanel(rt: Runtime, opts: { version: string; session: Session; fetchers: Kit['fetchers']; onClose(): void }): Panel {
+/** Same-origin frames hooked (besides this page) and cross-origin frames the browser keeps out of reach. */
+export interface Frames { hooked: number; blocked: number }
+/** What traffic is covered: this page and its same-origin frames; cross-origin frames are named, never implied. */
+export function scopeText(f: Frames | undefined): string {
+  const frames = f?.hooked ? ` and ${f.hooked} same-origin frame${f.hooked === 1 ? '' : 's'}` : '';
+  const blocked = f?.blocked ? ` ${f.blocked} cross-origin frame${f.blocked === 1 ? ' is' : 's are'} not reachable from the page (browser security); open ${f.blocked === 1 ? 'its' : 'their'} address in its own tab to use the Workbench there.` : '';
+  return `Fetch/XHR from this page${frames}, after launch.${blocked}`;
+}
+
+export function mountPanel(rt: Runtime, opts: { version: string; session: Session; fetchers: Kit['fetchers']; frames?: () => Frames; onClose(): void }): Panel {
   const session = opts.session;
   const life = new AbortController();
   const on = <E extends Event = Event>(el: EventTarget, type: string, fn: (e: E) => void) => el.addEventListener(type, fn as EventListener, { signal: life.signal });
@@ -567,7 +576,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
   const unsubPrefs = session.subscribe(applyPrefs);
   const endpointsUi = createEndpointsUi(kit);
   const testUi = createTestUi(kit);
-  const importUi = createImportUi(kit, recorder, { version: opts.version, onProfileChange: () => testUi.stop() });
+  const importUi = createImportUi(kit, recorder, { version: opts.version, onProfileChange: () => testUi.stop(), scope: () => scopeText(opts.frames?.()) });
   const settingsUi = createSettingsUi(kit, {
     version: opts.version,
     updateUrl: __UPDATE_URL__,
@@ -656,7 +665,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
           h('div', { class: 'aw-row' }, h('span', { class: 'aw-lbl aw-grow' }, h('span', {}, 'Recent activity '), count), h('span', { class: 'aw-chk' }, followCb, 'Follow newest'), clear),
           h('label', { class: 'aw-sr', for: 'aw-filter' }, 'Filter recent activity'), filterIn,
           t.el),
-        h('p', { class: 'aw-hint aw-wrap' }, `Version ${opts.version} · Frame ${rt.origin} · Current-frame Fetch/XHR after launch only. Rules are saved with the profile; modules start inactive on every launch. The latest ${rt.prefs.records} requests are kept (Settings).`),
+        h('p', { class: 'aw-hint aw-wrap' }, `Version ${opts.version} · ${rt.origin} · ${scopeText(opts.frames?.())} Rules are saved with the profile; modules start inactive on every launch. The latest ${rt.prefs.records} requests are kept (Settings).`),
       ],
       refresh: () => refreshers.forEach((f) => f()),
     };

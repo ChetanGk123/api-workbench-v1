@@ -436,3 +436,53 @@ test.describe('activity', () => {
     expect(await panel(page).evaluate((el) => el.shadowRoot!.textContent!.includes('secret'))).toBe(false);
   });
 });
+
+test.describe('frames (same-origin frames are instrumented; cross-origin ones are named)', () => {
+  /** Add an iframe and resolve once it has loaded. */
+  const addFrame = (page: Page, src: string) => page.evaluate((s) => new Promise<void>((r) => {
+    const f = document.createElement('iframe');
+    f.src = s;
+    f.onload = () => r();
+    document.body.append(f);
+  }), src);
+  const frameAt = (page: Page, tag: string) => page.frames().find((f) => f.url().includes(tag))!;
+  const sendIn = async (page: Page, tag: string, o: Record<string, unknown>) => {
+    const f = frameAt(page, tag);
+    await f.waitForFunction(() => (window as any).fx);
+    return f.evaluate((opts) => (window as any).fx.send(opts), o) as Promise<Res>;
+  };
+
+  test('frames present at launch, added later and navigated are hooked for fetch and XHR; Record sees them; Close restores them', async ({ page }) => {
+    await addFrame(page, `${A}/fixture?frame=1`);
+    await launch(page);
+    await addMock(page);
+    const r = await sendIn(page, 'frame=1', { url: '/api/mock-target' });
+    expect(r.body.text).toContain('mocked');
+    expect(r.isResponse).toBe(true); // the frame's own Response class
+    expect((await sendIn(page, 'frame=1', { transport: 'xhr', url: '/api/mock-target' })).body.text).toContain('mocked');
+
+    await addFrame(page, `${A}/fixture?frame=2`); // added after launch
+    await expect.poll(async () => (await sendIn(page, 'frame=2', { url: '/api/mock-target' })).body.text).toContain('mocked');
+    await frameAt(page, 'frame=1').evaluate(() => { location.href = '/fixture?frame=3'; }); // navigated: a new document
+    await page.waitForFunction(() => [...document.querySelectorAll('iframe')].some((f) => f.contentWindow?.location.href.includes('frame=3') && (f.contentWindow as any).fx));
+    await expect.poll(async () => (await sendIn(page, 'frame=3', { url: '/api/mock-target' })).body.text).toContain('mocked');
+
+    await addFrame(page, `${B}/fixture?frame=x`); // cross-origin: unreachable, but said so
+    await page.waitForTimeout(700);
+    await tab(page, 'Home');
+    await expect(panel(page)).toContainText('1 cross-origin frame is not reachable from the page');
+    await expect(panel(page)).toContainText('this page and 2 same-origin frames');
+
+    await page.getByRole('button', { name: 'Record', exact: true }).click();
+    await page.getByRole('button', { name: 'Start recording', exact: true }).click();
+    await sendIn(page, 'frame=2', { url: '/api/echo?from=frame' });
+    await expect(page.locator('#aw-rec-count')).toContainText('1 of 100 calls');
+    await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
+
+    await page.getByRole('button', { name: 'Close API Workbench and remove its hooks' }).first().click();
+    for (const tag of ['frame=2', 'frame=3']) {
+      expect(await frameAt(page, tag).evaluate(() => /\[native code\]/.test(Function.prototype.toString.call(window.fetch)))).toBe(true);
+      expect((await sendIn(page, tag, { url: '/api/mock-target' })).body.text).not.toContain('mocked');
+    }
+  });
+});

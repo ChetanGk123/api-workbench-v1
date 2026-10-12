@@ -38,7 +38,7 @@ const kib = (n: number) => `${(n / 1024).toFixed(1)} KiB`;
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 const fail = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; onProfileChange(): void }) {
+export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; onProfileChange(): void; scope(): string }) {
   const s = kit.session;
   let text = '';
   let edited = false;
@@ -625,6 +625,9 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const stale = h('div', { class: 'aw-alert aw-row aw-gap6', id: 'aw-imp-stale', hidden: true });
     ui = { state: h('div', {}), text: textarea('', () => {}), review: reviewEl, rec: recEl, stale };
     where = 'record';
+    const scopeEl = h('p', { class: 'aw-hint aw-wrap', id: 'aw-rec-scope' });
+    const drawScope = () => { scopeEl.textContent = `Captures ${o.scope().replace(/^Fetch\/XHR/, 'Fetch/XHR calls')} Recording continues while the panel is minimized. Workers and cached responses are not captured. Secrets in headers, query and JSON fields are redacted before they are shown or kept.`; };
+    drawScope();
     drawReview();
     drawRecorder();
     autoReview();
@@ -632,11 +635,11 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
       nodes: [
         kit.subbar('record', 'Record'),
         section(['record', 'Recorder'],
-          h('p', { class: 'aw-hint aw-wrap' }, 'Captures this frame’s Fetch/XHR calls made after Start, including while the panel is minimized. Earlier calls, workers, other frames and cached responses are not captured. Secrets in headers, query and JSON fields are redacted before they are shown or kept.'),
+          scopeEl,
           recEl),
         reviewEl,
       ],
-      refresh: () => { drawRecorder(); autoReview(); if (review) drawStale(); },
+      refresh: () => { drawScope(); drawRecorder(); autoReview(); if (review) drawStale(); },
     };
   }
 
