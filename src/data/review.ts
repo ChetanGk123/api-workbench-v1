@@ -155,8 +155,21 @@ function statusCheck(status: number | undefined): Check {
   return { kind: 'status', min: status, max: status };
 }
 
-/** Build the proposed endpoint for a group of identical observed calls. */
-function capturedEndpoint(agg: Aggregate, members: Capture[], sampleIdx: number, dropQuery: string[], pageOrigin: string, alias: string): Pick<Candidate, 'endpoint' | 'notes' | 'requires'> {
+/** The script-readable cookie that carries the token of a (redacted) XSRF/CSRF header, or null. Exact match after
+ * normalizing (X-XSRF-TOKEN ↔ XSRF-TOKEN, X-CSRFToken ↔ csrftoken); otherwise the only cookie of the same kind. */
+export function tokenCookie(header: string, cookies: readonly string[]): string | null {
+  const kind = /xsrf/i.test(header) ? 'xsrf' : /csrf/i.test(header) ? 'csrf' : null;
+  if (!kind) return null;
+  const norm = (s: string) => s.toLowerCase().replace(/^x-/, '').replace(/[^a-z0-9]/g, '');
+  const exact = cookies.find((c) => norm(c) === norm(header));
+  if (exact) return exact;
+  const same = cookies.filter((c) => norm(c).includes(kind));
+  return same.length === 1 ? same[0]! : null;
+}
+
+/** Build the proposed endpoint for a group of identical observed calls. `cookies`: script-readable cookie names on
+ * the page now, used to read a redacted anti-forgery header fresh at send time instead of asking for it. */
+function capturedEndpoint(agg: Aggregate, members: Capture[], sampleIdx: number, dropQuery: string[], pageOrigin: string, alias: string, cookies: readonly string[]): Pick<Candidate, 'endpoint' | 'notes' | 'requires'> {
   const c = members[members.length - 1]!; // newest call defines the request
   const notes = [...new Set(members.flatMap((m) => m.notes))];
   const requires: string[] = [];
@@ -172,8 +185,15 @@ function capturedEndpoint(agg: Aggregate, members: Capture[], sampleIdx: number,
     if (seen.has(k)) { notes.push(`Header ${name} appeared twice; the first value is kept`); continue; }
     if (c.body.kind === 'multipart' && k === 'content-type') continue; // the browser sets the boundary
     seen.add(k);
+    const cookie = value === REDACTED ? tokenCookie(name, cookies) : null;
+    if (cookie) {
+      headers.push({ name, value: `{{$cookie("${cookie}")}}` });
+      notes.push(`Header ${name} is read from cookie ${cookie} each time it is sent (the recorded value was redacted)`);
+      continue;
+    }
     headers.push({ name, value });
-    if (value === REDACTED) requires.push(/signature/i.test(name) ? `Header ${name}: the captured signature is historical and was redacted; configure a signing recipe or enter a fresh value` : `Header ${name}: enter a fresh value (the captured value was redacted)`);
+    if (value === REDACTED) requires.push(/signature/i.test(name) ? `Header ${name}: the captured signature is historical and was redacted; configure a signing recipe or enter a fresh value`
+      : `Header ${name}: enter a fresh value (the captured value was redacted)${/xsrf|csrf/i.test(name) ? '. If the page keeps it in a script-readable cookie, use {{$cookie("cookie-name")}} so it is read at each send' : ''}`);
     else if (ROTATING.test(name)) requires.push(`Header ${name} looks per-request (nonce, idempotency key, timestamp or OTP); the captured value is historical and must be prepared fresh`);
   }
   const query = c.query.filter(([k]) => !dropQuery.includes(k));
@@ -200,7 +220,7 @@ function capturedEndpoint(agg: Aggregate, members: Capture[], sampleIdx: number,
   return { endpoint: e, notes, requires };
 }
 
-export interface BuildOptions { group: boolean; pageOrigin: string }
+export interface BuildOptions { group: boolean; pageOrigin: string; cookies?: readonly string[] }
 
 /** Turn observed calls into candidates against the destination profile. */
 export function candidatesFromCaptures(agg: Aggregate, captures: Capture[], o: BuildOptions): { candidates: Candidate[]; skipped: string[] } {
@@ -232,7 +252,7 @@ export function candidatesFromCaptures(agg: Aggregate, captures: Capture[], o: B
       source: members.length > 1 ? `${members.length} identical calls` : first.transport === 'har' ? `HAR entry ${first.id + 1}` : `Call #${first.id} · ${first.transport}${first.source === 'tester' ? ' · tester traffic' : ''}`,
       transient, dropQuery: [], conflict: null, action: 'keep',
       variant: total > 1 ? `variant ${n} of ${total} (different query or body)` : '',
-      ...capturedEndpoint(agg, members, members.length - 1, [], o.pageOrigin, alias),
+      ...capturedEndpoint(agg, members, members.length - 1, [], o.pageOrigin, alias, o.cookies ?? []),
     };
     markConflict(agg, cand, existing, o.pageOrigin);
     out.push(cand);
@@ -247,9 +267,9 @@ function markConflict(agg: Aggregate, cand: Candidate, existing: Map<string, End
 }
 
 /** Rebuild a candidate's endpoint after a sample, transient-query or body-example choice, keeping the user's name/alias. */
-export function rebuildCandidate(agg: Aggregate, cand: Candidate, pageOrigin: string): void {
+export function rebuildCandidate(agg: Aggregate, cand: Candidate, pageOrigin: string, cookies: readonly string[] = []): void {
   const { name, alias } = cand.endpoint;
-  const next = cand.draft ? draftEndpoint(agg, cand.draft, cand.bodyIdx ?? 0, pageOrigin, alias) : capturedEndpoint(agg, cand.members, cand.sampleIdx, cand.dropQuery, pageOrigin, alias);
+  const next = cand.draft ? draftEndpoint(agg, cand.draft, cand.bodyIdx ?? 0, pageOrigin, alias) : capturedEndpoint(agg, cand.members, cand.sampleIdx, cand.dropQuery, pageOrigin, alias, cookies);
   Object.assign(cand, next);
   cand.endpoint.name = name;
   const existing = new Map(agg.endpoints.map((e) => [requestIdentity(agg, e, pageOrigin), e]));

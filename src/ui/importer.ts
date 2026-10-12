@@ -59,6 +59,8 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
   let ui: { state: HTMLElement; text: HTMLTextAreaElement; review: HTMLElement; rec: HTMLElement; stale: HTMLElement } | null = null;
 
   const destination = () => s.agg();
+  /** Script-readable cookie names on this page now ($cookie reads the same jar at send time). */
+  const cookieNames = () => { try { return document.cookie.split(';').map((p) => p.split('=')[0]!.trim()).filter(Boolean); } catch { return []; } };
   const isStale = () => !!review && (destination().profile.id !== review.profileId || destination().revision !== review.revision);
 
   // ---------- source draft
@@ -143,7 +145,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const dest = prev?.calls?.dest ?? 'current';
     const group = prev?.calls?.group ?? true;
     const target = dest === 'new' ? defaultProfile('New profile') : destination();
-    const { candidates, skipped } = candidatesFromCaptures(target, captures, { group, pageOrigin: kit.rt.origin });
+    const { candidates, skipped } = candidatesFromCaptures(target, captures, { group, pageOrigin: kit.rt.origin, cookies: cookieNames() });
     for (const c of candidates) {
       const old = prev?.candidates.find((p) => p.key === c.key && p.members.length === c.members.length && p.members[0]!.id === c.members[0]!.id);
       if (old) keepChoices(target, c, old);
@@ -191,7 +193,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     c.sampleIdx = old.sampleIdx;
     c.dropQuery = [...old.dropQuery];
     if (old.bodyIdx !== undefined) c.bodyIdx = old.bodyIdx;
-    if (changed) rebuildCandidate(target, c, kit.rt.origin);
+    if (changed) rebuildCandidate(target, c, kit.rt.origin, cookieNames());
     c.endpoint.name = old.endpoint.name;
   }
 
@@ -324,7 +326,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     if (c.members.length > 1) {
       kids.push(field('Sample from', select(String(c.sampleIdx), c.members.map((m, j) => [String(j), `Call #${m.id} · ${m.status ?? m.outcome}${m.ms !== undefined ? ` · ${Math.round(m.ms)} ms` : ''}`] as [string, string]), (v) => {
         c.sampleIdx = Number(v);
-        rebuildCandidate(target, c, kit.rt.origin);
+        rebuildCandidate(target, c, kit.rt.origin, cookieNames());
         drawReview();
       }, { id: `aw-cand-sample-${i}` })));
     }
@@ -332,14 +334,14 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     if (bodies.length > 1) {
       kids.push(field('Body example', select(String(c.bodyIdx ?? 0), bodies.map((b, j) => [String(j), b.label] as [string, string]), (v) => {
         c.bodyIdx = Number(v);
-        rebuildCandidate(target, c, kit.rt.origin);
+        rebuildCandidate(target, c, kit.rt.origin, cookieNames());
         drawReview();
       }, { id: `aw-cand-body-${i}` })));
     }
     for (const t of c.transient) {
       kids.push(h('div', { class: 'aw-chk' }, checkbox(`Remove transient query ${t} from ${e.name}`, c.dropQuery.includes(t), (v) => {
         c.dropQuery = v ? [...c.dropQuery, t] : c.dropQuery.filter((x) => x !== t);
-        rebuildCandidate(target, c, kit.rt.origin);
+        rebuildCandidate(target, c, kit.rt.origin, cookieNames());
         drawReview();
       }), `Remove transient query ${t} (looks like a cache-buster)`));
     }

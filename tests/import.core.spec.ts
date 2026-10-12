@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { exportEnvelope } from '../src/data/backup';
 import { capturesToHar, parseSource } from '../src/data/importers';
 import {
-  applyCandidates, candidatesFromCaptures, candidatesFromNative, dependencySuggestions, mergeNative, rebuildCandidate, type Candidate,
+  applyCandidates, candidatesFromCaptures, candidatesFromNative, dependencySuggestions, mergeNative, rebuildCandidate, tokenCookie, type Candidate,
 } from '../src/data/review';
 import { defaultProfile, newEndpoint, validateAggregate, type Aggregate } from '../src/data/schema';
 import { redactText, requestBody, type Capture } from '../src/net/capture';
@@ -175,6 +175,28 @@ test.describe('capture redaction (G18 redaction)', () => {
     expect(requestBody('a=1&token=x', 'application/x-www-form-urlencoded', c)).toEqual({ kind: 'urlencoded', pairs: [['a', '1'], ['token', '{{$redacted}}']] });
     expect(requestBody(new Blob(['x']), '', c)).toEqual({ kind: 'omitted', reason: 'Binary request body (Blob/ArrayBuffer) is not captured' });
     expect(requestBody('x'.repeat(70 * 1024), 'text/plain', c)).toMatchObject({ kind: 'omitted' });
+  });
+});
+
+test.describe('anti-forgery headers (redacted XSRF/CSRF read from a page cookie)', () => {
+  test('tokenCookie matches by name, then the only cookie of the same kind; never guesses between several', () => {
+    expect(tokenCookie('X-XSRF-TOKEN', ['session', 'XSRF-TOKEN'])).toBe('XSRF-TOKEN');
+    expect(tokenCookie('X-CSRFToken', ['csrftoken'])).toBe('csrftoken');
+    expect(tokenCookie('x-xsrf-token', ['MY_XSRF'])).toBe('MY_XSRF');
+    expect(tokenCookie('x-xsrf-token', ['A_XSRF', 'B_XSRF'])).toBeNull();
+    expect(tokenCookie('x-xsrf-token', ['csrftoken'])).toBeNull(); // different kind
+    expect(tokenCookie('Authorization', ['XSRF-TOKEN'])).toBeNull();
+  });
+
+  test('a recorded XSRF header becomes a $cookie expression when the page has the cookie; otherwise it asks, with a hint', () => {
+    const text = har([{ url: `${PAGE}/api/wires`, headers: [['X-XSRF-TOKEN', 'abc123'], ['Accept', 'application/json']] }]);
+    const withCookie = candidatesFromCaptures(defaultProfile(), calls(text), { group: true, pageOrigin: PAGE, cookies: ['session_id', 'XSRF-TOKEN'] }).candidates[0]!;
+    expect(withCookie.endpoint.request.headers).toContainEqual({ name: 'X-XSRF-TOKEN', value: '{{$cookie("XSRF-TOKEN")}}' });
+    expect(withCookie.requires.join()).not.toContain('X-XSRF-TOKEN');
+    expect(withCookie.notes.join()).toContain('read from cookie XSRF-TOKEN');
+    const without = build(defaultProfile(), text).candidates[0]!;
+    expect(without.endpoint.request.headers).toContainEqual({ name: 'X-XSRF-TOKEN', value: '{{$redacted}}' });
+    expect(without.requires.join()).toContain('use {{$cookie("cookie-name")}}');
   });
 });
 
