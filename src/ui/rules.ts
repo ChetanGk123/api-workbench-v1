@@ -235,7 +235,8 @@ export function createRulesUi(kit: Kit, deps: {
     const ep = r.endpointId ? s.agg().endpoints.find((e) => e.id === r.endpointId) : undefined;
     const m = r.matcher;
     const open = btn([
-      h('span', { class: 'aw-row aw-gap6' }, h('span', { class: 'aw-rname' }, name), r.priority ? h('span', { class: 'aw-bd aw-h18' }, `priority ${r.priority}`) : null, ep ? h('span', { class: 'aw-bd aw-h18', title: 'Method and URL follow this endpoint' }, `↔ ${ep.name}`) : null),
+      h('span', { class: 'aw-row aw-gap6 aw-rulehead' }, h('span', { class: 'aw-rname aw-wrap' }, name), r.priority ? h('span', { class: 'aw-bd aw-h18' }, `priority ${r.priority}`) : null,
+        ep ? h('span', { class: 'aw-bd aw-h18 aw-linkbd', title: `Method and URL follow ${ep.name}` }, h('span', { class: 'aw-tr' }, ep.name === name ? '↔ linked' : `↔ ${ep.name}`)) : null),
       h('span', { class: 'aw-row aw-mono aw-meta' }, methodBadge(m.method), h('span', { class: 'aw-tr' }, `${m.origin && m.origin !== rt.origin ? m.origin : ''}${m.path}`)),
       h('span', { class: 'aw-xs aw-mu aw-wrap' }, ruleSummary(r)),
       h('span', { class: 'aw-xs aw-am', 'data-live': r.id }),

@@ -135,8 +135,9 @@ export function createEndpointsUi(kit: Kit) {
     const i = agg.endpoints.indexOf(e);
     const needsFiles = e.request.body.kind === 'multipart' && e.request.body.parts.some((p) => p.kind === 'file');
     const exprs = JSON.stringify(e.request).match(/\{\{[^}]*\}\}/g)?.length ?? 0;
-    const open = h('button', { class: 'aw-grow aw-col aw-rulebtn', type: 'button', 'data-key': `ep-${e.id}`, 'aria-label': `Edit ${e.name} (${e.alias})` },
-      h('span', { class: 'aw-row aw-gap6' }, h('span', { class: 'aw-rname' }, e.name), h('span', { class: 'aw-xs aw-mu aw-mono' }, e.alias)),
+    // Alias stays in the tooltip, the accessible name and the filter; the row shows only the name (long paths wrap).
+    const open = h('button', { class: 'aw-grow aw-col aw-rulebtn', type: 'button', 'data-key': `ep-${e.id}`, 'aria-label': `Edit ${e.name} (${e.alias})`, title: `${e.name} · alias ${e.alias}` },
+      h('span', { class: 'aw-rname aw-wrap' }, e.name),
       h('span', { class: 'aw-row aw-mono aw-meta', title: destination(agg, e.request, kit.rt.origin) }, methodBadge(e.request.method),
         e.request.hostKey !== null ? h('span', { class: 'aw-mu' }, e.request.hostKey) : null, h('span', { class: 'aw-tr' }, e.request.url)));
     open.addEventListener('click', () => kit.editEndpoint(e.id));
