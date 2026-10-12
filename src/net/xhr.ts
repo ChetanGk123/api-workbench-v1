@@ -533,7 +533,7 @@ export function createXhr(n: XhrNatives, rt: Runtime, nativeFetch: typeof fetch,
   function captureSend(xhr: XMLHttpRequest, st: XState, rec: ReqRecord, body: unknown) {
     const c = newCapture(rec, st.method, st.url);
     rec.capture = c;
-    c.headers = cleanHeaders(st.headers, c);
+    c.headers = cleanHeaders(st.headers, c, 'Header', rt.prefs.keepSecrets);
     c.credentials = xhr.withCredentials ? 'include' : 'same-origin';
     const ct = st.headers.find(([k]) => k.toLowerCase() === 'content-type')?.[1] ?? '';
     c.body = requestBody(body, ct, c);

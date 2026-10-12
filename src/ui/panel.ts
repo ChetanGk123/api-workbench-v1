@@ -437,7 +437,7 @@ export function mountPanel(rt: Runtime, opts: { version: string; session: Sessio
     if (sig === lastPrefs) return;
     const before = lastPrefs ? JSON.parse(lastPrefs) as typeof p : null;
     lastPrefs = sig;
-    rt.setPrefs({ records: p.activityRecords, responseBodies: p.responseBodies });
+    rt.setPrefs({ records: p.activityRecords, responseBodies: p.responseBodies, keepSecrets: p.recorderSecrets });
     if (p.hidden.includes('recorder') && recorder.recording()) {
       recorder.stop();
       announce(`Recorder hidden in Settings: recording stopped. ${recorder.captures().length} call(s) kept in the draft.`);

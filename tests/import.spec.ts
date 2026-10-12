@@ -104,6 +104,27 @@ test.describe('recorder (G18, S06)', () => {
     await expect(page.locator('#aw-rec-count')).toHaveText(/^1 of 100 calls/);
   });
 
+  test('Keep secret header values (off by default): Authorization is recorded and saved as sent', async ({ page }) => {
+    await launch(page, openRecord);
+    const keep = page.getByRole('checkbox', { name: 'Keep secret header values' });
+    await expect(keep).toHaveAttribute('aria-checked', 'false');
+    await keep.click();
+    await expect(page.locator('#aw-rec-scope')).toContainText('Secret request header values are kept');
+    await button(page, 'Start recording').click();
+    await send(page, { url: '/api/echo?k=1', headers: { Authorization: 'Bearer live-123' } });
+    await expect(page.locator('#aw-rec-count')).toContainText('1 of 100 calls');
+    await button(page, 'Stop recording').click();
+    const review = page.locator('#aw-imp-review');
+    await expect(review).toContainText('1 candidate');
+    await expect(review).not.toContainText('enter a fresh value');
+    await button(page, 'Import 1 selected').click();
+    await expect(page.locator('#aw-imp-saved')).toContainText('1 added');
+    await button(page, 'Show endpoints').click();
+    await page.getByRole('button', { name: /^Edit / }).first().click();
+    const values = await page.locator('[data-api-workbench]').evaluate((el) => [...el.shadowRoot!.querySelectorAll<HTMLInputElement>('input[aria-label^="Header"][aria-label$="value"]')].map((i) => i.value));
+    expect(values).toContain('Bearer live-123');
+  });
+
   test('an unknown-length slow stream is excluded from the capture; the page still gets the whole body (G07)', async ({ page }) => {
     await launch(page, openRecord);
     await button(page, 'Start recording').click();

@@ -13,7 +13,7 @@ test.describe('profile settings (S18.2, G23)', () => {
     (a.profile as { settings: unknown }).settings = { bodyCheckKb: 256 };
     const r = validateAggregate(JSON.parse(JSON.stringify(a)));
     expect(r.ok).toBe(true);
-    expect(r.ok && r.value.profile.settings).toEqual({ bodyCheckKb: 256, hidden: [], activityRecords: 500, recorderCalls: 100, responseBodies: true, recorderRecovery: true, contextRoots: [] });
+    expect(r.ok && r.value.profile.settings).toEqual({ bodyCheckKb: 256, hidden: [], activityRecords: 500, recorderCalls: 100, responseBodies: true, recorderRecovery: true, recorderSecrets: false, contextRoots: [] });
   });
 
   test('bounds, module names and root names are enforced', () => {

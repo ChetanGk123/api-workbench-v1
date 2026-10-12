@@ -51,13 +51,14 @@ const SECRET_FIELD = /^(key|api_?key|sig|otp|code|pin|pwd|pass|access_token|refr
 export const sensitiveName = (n: string) => sensitiveHeader(n) || SECRET_FIELD.test(n.trim());
 
 /** Header rows a script could replay: forbidden names dropped (noted), sensitive values redacted. */
-export function cleanHeaders(rows: Iterable<[string, string]>, c: Pick<Capture, 'redacted' | 'notes'>, where = 'Header'): Pair[] {
+/** `keepSecrets`: the user chose to record secret-looking request header values (Record → Keep secret header values). */
+export function cleanHeaders(rows: Iterable<[string, string]>, c: Pick<Capture, 'redacted' | 'notes'>, where = 'Header', keepSecrets = false): Pair[] {
   const out: Pair[] = [];
   for (const [k, v] of rows) {
     if (out.length >= 200) break;
     if (k.startsWith(':')) continue; // HTTP/2 pseudo-headers in HAR
     if (forbiddenHeader(k)) { c.notes.push(`${where} ${k} is set by the browser and was not kept`); continue; }
-    if (sensitiveName(k)) { c.redacted.push(`${where} ${k}`); out.push([k, REDACTED]); } else out.push([k, v]);
+    if (sensitiveName(k) && !keepSecrets) { c.redacted.push(`${where} ${k}`); out.push([k, REDACTED]); } else out.push([k, v]);
   }
   return out;
 }

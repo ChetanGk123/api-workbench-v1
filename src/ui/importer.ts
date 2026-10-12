@@ -517,7 +517,8 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     const n = rec.captures().length;
     const on = rec.recording();
     const status = on ? `Recording since ${new Date(rec.startedAt()).toLocaleTimeString()}` : rec.recoveredAt() ? `Recovered draft from ${new Date(rec.recoveredAt()).toLocaleString()} · not recording` : n ? 'Stopped' : 'Not recording';
-    const sig = JSON.stringify([on, n, rec.bytes(), rec.stopReason(), rec.recoveryError(), rec.recoveredAt(), rec.includeTester()]);
+    const keep = s.agg().profile.settings.recorderSecrets;
+    const sig = JSON.stringify([on, n, rec.bytes(), rec.stopReason(), rec.recoveryError(), rec.recoveredAt(), rec.includeTester(), keep]);
     if (ui.rec.dataset.sig === sig) return;
     ui.rec.dataset.sig = sig;
     const refocus = ui.rec.contains(kit.root.activeElement) ? (kit.root.activeElement as HTMLElement).id : '';
@@ -537,6 +538,9 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
         btn('Export as HAR', exportRecorder, 'aw-btn aw-gh aw-sm', { id: 'aw-rec-export', disabled: !n }),
         btn([icon('trash', 'aw-i aw-i12'), 'Reset…'], resetRecorder, 'aw-btn aw-gh aw-sm', { id: 'aw-rec-reset', disabled: !n && !on && !rec.stopReason() })),
       h('div', { class: 'aw-chk' }, checkbox('Include tester traffic', rec.includeTester(), (v) => rec.setIncludeTester(v)), 'Include tester traffic (Test → Once with Apply rules; labelled)'),
+      h('div', { class: 'aw-chk aw-top' }, checkbox('Keep secret header values', keep, (v) => void setKeepSecrets(v)),
+        h('span', { class: 'aw-col aw-gap2' }, 'Keep secret header values (Authorization, tokens, API keys)',
+          h('span', { class: 'aw-xs aw-mu aw-wrap' }, 'Saved with this profile in this browser for this site, so recorded endpoints send as recorded. Applies to calls recorded from now on; exports still leave them out unless you include them.'))),
       ...(on && n ? [liveCalls()] : []),
     );
     if (refocus) kit.root.getElementById(refocus)?.focus();
@@ -550,6 +554,11 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
       h('ol', { class: 'aw-card aw-list aw-reclive', 'aria-label': 'Captured calls, newest first' }, ...caps.slice(-20).reverse().map((c) =>
         h('li', { class: 'aw-li aw-gap8' }, methodBadge(c.method), h('span', { class: 'aw-grow aw-tr aw-mono aw-xs', title: c.url }, path(c.url)),
           h('span', { class: `aw-xs ${c.status && c.status < 400 ? 'aw-t-ok' : 'aw-t-bad'}` }, c.status ? String(c.status) : c.outcome)))));
+  }
+
+  async function setKeepSecrets(v: boolean) {
+    const out = await s.edit((a) => { a.profile.settings.recorderSecrets = v; });
+    kit.announce(out ? `Not saved: ${out[0]!.message}` : v ? 'Secret request header values are now kept when recording, for this profile.' : 'Secret request header values are redacted again when recording.');
   }
 
   /** On Record, a stopped draft is shown as a review (endpoints + destination) without an extra click. Never replaces
@@ -628,7 +637,7 @@ export function createImportUi(kit: Kit, rec: Recorder, o: { version: string; on
     ui = { state: h('div', {}), text: textarea('', () => {}), review: reviewEl, rec: recEl, stale };
     where = 'record';
     const scopeEl = h('p', { class: 'aw-hint aw-wrap', id: 'aw-rec-scope' });
-    const drawScope = () => { scopeEl.textContent = `Captures ${o.scope().replace(/^Fetch\/XHR/, 'Fetch/XHR calls')} Recording continues while the panel is minimized. Workers and cached responses are not captured. Secrets in headers, query and JSON fields are redacted before they are shown or kept.`; };
+    const drawScope = () => { scopeEl.textContent = `Captures ${o.scope().replace(/^Fetch\/XHR/, 'Fetch/XHR calls')} Recording continues while the panel is minimized. Workers and cached responses are not captured. ${s.agg().profile.settings.recorderSecrets ? 'Secret request header values are kept (this profile); secrets in query and JSON fields are still redacted.' : 'Secrets in headers, query and JSON fields are redacted before they are shown or kept.'}`; };
     drawScope();
     drawReview();
     drawRecorder();

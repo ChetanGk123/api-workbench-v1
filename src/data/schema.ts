@@ -261,6 +261,8 @@ export interface Settings {
   responseBodies: boolean;
   /** Recorder keeps a recovery copy in this origin's storage. */
   recorderRecovery: boolean;
+  /** Recorder keeps secret-looking request header values (Authorization, tokens) instead of redacting them. Off by default. */
+  recorderSecrets: boolean;
   /** Global roots offered by Auth & context → Find values; scanned only when the user asks. */
   contextRoots: string[];
 }
@@ -699,7 +701,7 @@ function profile(v: V, x: unknown, p: string): Profile {
 
 export const defaultSettings = (): Settings => ({
   bodyCheckKb: BOUNDS.bodyCheckKb.default, hidden: [], activityRecords: BOUNDS.activityRecords.default,
-  recorderCalls: BOUNDS.recorderCalls.default, responseBodies: true, recorderRecovery: true, contextRoots: [],
+  recorderCalls: BOUNDS.recorderCalls.default, responseBodies: true, recorderRecovery: true, recorderSecrets: false, contextRoots: [],
 });
 const ROOT_NAME = /^[A-Za-z_$][\w$]*$/;
 /** Fields added in R8 default when absent, so earlier schema 2 data still loads. */
@@ -723,6 +725,7 @@ function settings(v: V, s: Obj, p: string): Settings {
     recorderCalls: has('recorderCalls') ? v.int(s, 'recorderCalls', p, BOUNDS.recorderCalls.min, BOUNDS.recorderCalls.max) : d.recorderCalls,
     responseBodies: has('responseBodies') ? v.bool(s, 'responseBodies', p) : d.responseBodies,
     recorderRecovery: has('recorderRecovery') ? v.bool(s, 'recorderRecovery', p) : d.recorderRecovery,
+    recorderSecrets: has('recorderSecrets') ? v.bool(s, 'recorderSecrets', p) : d.recorderSecrets,
     contextRoots: [...new Set(contextRoots)],
   };
 }

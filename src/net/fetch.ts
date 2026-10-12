@@ -436,7 +436,7 @@ function captureRequest(input: RequestInfo | URL, init: RequestInit | undefined,
   const req = isA(input, 'Request') ? input as Request : null;
   let headers: Headers;
   try { headers = new Headers(init?.headers !== undefined ? init.headers : req?.headers); } catch { headers = new Headers(); c.notes.push('Request headers were invalid; the browser rejected them'); }
-  c.headers = cleanHeaders(headers, c);
+  c.headers = cleanHeaders(headers, c, 'Header', rt.prefs.keepSecrets);
   c.credentials = (init?.credentials ?? req?.credentials ?? 'same-origin') as Credentials;
   const ct = headers.get('content-type') ?? '';
   if (init?.body !== undefined) c.body = requestBody(init.body, ct, c);

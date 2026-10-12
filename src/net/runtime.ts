@@ -64,7 +64,7 @@ export interface Pause {
   outcome?: string;
 }
 
-export interface Prefs { records: number; responseBodies: boolean }
+export interface Prefs { records: number; responseBodies: boolean; /** recorder keeps secret request header values */ keepSecrets: boolean }
 
 export interface Runtime {
   readonly origin: string;
@@ -136,9 +136,9 @@ export function createRuntime(origin: string, initial: Config): Runtime {
     origin,
     inert: false,
     capturing: false,
-    prefs: { records: LIMITS.records, responseBodies: true },
+    prefs: { records: LIMITS.records, responseBodies: true, keepSecrets: false },
     setPrefs(p) {
-      if (p.records === rt.prefs.records && p.responseBodies === rt.prefs.responseBodies) return;
+      if (p.records === rt.prefs.records && p.responseBodies === rt.prefs.responseBodies && p.keepSecrets === rt.prefs.keepSecrets) return;
       (rt as { prefs: Prefs }).prefs = { ...p };
       if (list.length > p.records) list.splice(0, list.length - p.records);
       changed();
