@@ -87,6 +87,21 @@ test.describe('mock sequences (G09)', () => {
     expect(await hits(page, '/api/slow-mock')).toBe(1);
   });
 
+  test('row Enable and Delete update the list at once, with focus still in it', async ({ page }) => {
+    await page.evaluate(source);
+    await addMock(page, { path: '/api/one', activate: false });
+    await addMock(page, { path: '/api/two', activate: false });
+    const rows = panel(page).locator('li.aw-rule');
+    await expect(rows).toHaveCount(2);
+    const enable = rows.first().getByRole('checkbox');
+    await enable.click();
+    await expect(rows.first().getByRole('checkbox')).toHaveAttribute('aria-checked', 'false');
+    await expect(rows.first().getByRole('checkbox')).toBeFocused(); // rebuilt row keeps keyboard focus
+    await rows.first().getByRole('button', { name: /^Delete / }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+    await expect(rows).toHaveCount(1); // no tab switch needed
+  });
+
   test('Format JSON appears only for valid, unformatted reply bodies and formats in place', async ({ page }) => {
     await page.evaluate(source);
     await newRule(page, 'Mock');

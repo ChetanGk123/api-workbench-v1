@@ -187,14 +187,17 @@ export function createRulesUi(kit: Kit, deps: {
     function draw() {
       const rules = rulesOf(m);
       const sig = JSON.stringify([rules, s.agg().endpoints.map((e) => [e.id, e.name])]);
-      if (sig !== shown && !list.contains(kit.root.activeElement)) {
+      if (sig !== shown) {
         shown = sig;
+        // Rebuild even with focus inside (a row's Delete or Enable keeps focus there); refocus the same control after.
+        const focused = kit.root.activeElement?.closest?.('[data-key]')?.getAttribute('data-key');
         const linked = rules.filter((r) => r.endpointId), adhoc = rules.filter((r) => !r.endpointId);
         list.replaceChildren(
           ...(rules.length ? [] : [h('div', { class: 'aw-empty aw-wrap' }, `No ${MOD[m].noun}s yet. Create one, or start from an endpoint.`)]),
           ...(linked.length ? [h('div', { class: 'aw-cap aw-capl' }, 'Linked to endpoints'), h('ol', { class: 'aw-card aw-list aw-rulelist', 'aria-label': 'Linked rules' }, ...linked.map(row))] : []),
           ...(adhoc.length ? [h('div', { class: 'aw-cap aw-capl' }, 'Ad-hoc rules'), h('ol', { class: 'aw-card aw-list aw-rulelist', 'aria-label': 'Ad-hoc rules' }, ...adhoc.map(row))] : []),
         );
+        if (focused) (list.querySelector<HTMLElement>(`[data-key="${focused}"]`) ?? (focused.startsWith('rule-') ? addBtn : null))?.focus();
       }
       for (const el of list.querySelectorAll<HTMLElement>('[data-live]')) {
         const r = rules.find((x) => x.id === el.dataset.live);
@@ -245,7 +248,8 @@ export function createRulesUi(kit: Kit, deps: {
       const out = await s.edit((a) => { const x = a.rules.find((y) => y.id === r.id); if (x) x.enabled = v; });
       kit.announce(out ? `Not changed: ${out[0]!.message}` : `${name} ${v ? 'enabled' : 'disabled'}${cfg().active[r.kind] ? '; affects the next matching request' : ''}.`);
     });
-    const del = btn([icon('trash', 'aw-i aw-i14')], () => remove(r), 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Delete ${name}` });
+    cb.dataset.key = `rule-on-${r.id}`;
+    const del = btn([icon('trash', 'aw-i aw-i14')], () => remove(r), 'aw-btn aw-gh aw-ic aw-sm', { 'aria-label': `Delete ${name}`, 'data-key': `rule-del-${r.id}` });
     return h('li', { class: 'aw-row aw-rule' }, cb, open, del);
   }
 
